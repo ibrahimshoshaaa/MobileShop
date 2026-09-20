@@ -262,8 +262,13 @@ class ERPCommandEngine:
             if old:return old
             s=self.sales.get(sale_id)
             if not s:raise DomainError('NOT_FOUND','الفاتورة غير موجودة.',{})
+            if s.branch_id!=_ctx(command).branch_id: raise DomainError('BRANCH_ACCESS_DENIED','الفاتورة خارج الفرع.',{})
+            if s.customer_id!=customer_id: raise DomainError('INVALID_INPUT','العميل لا يطابق عميل الفاتورة.',{})
+            if self.customers.get(customer_id) is None: raise DomainError('NOT_FOUND','العميل غير موجود.',{'customer_id':customer_id})
+            paid=sum((p.amount for p in s.payments),D0)
+            receivable=money(s.total-paid)
             down=money(down_payment); rate=dec(rate_percent); term=int(term_months)
-            if down<0 or down>s.total or rate<0 or term<=0:raise DomainError('INVALID_INSTALLMENT_TERM','شروط التقسيط غير صحيحة.',{})
+            if down<0 or down>receivable or rate<0 or term<=0 or money(receivable-down)<=0:raise DomainError('INVALID_INSTALLMENT_TERM','شروط التقسيط غير صحيحة.',{})
             base=money(s.total-down); inc=money(base*rate/Decimal('100')); due=money(base+inc); monthly=(due/term).quantize(Decimal(str(rounding)),rounding=ROUND_HALF_UP)
             plan=InstallmentPlan(_ctx(command).command_id,sale_id,customer_id,base,rate,inc,due,term,monthly); self._put(self.installments,plan); self._audit(_ctx(command),'CREATE_INSTALLMENT',plan.id,{'total_due':str(due)}); self._processed[_ctx(command).idempotency_key]=plan; return plan
 
@@ -340,7 +345,10 @@ class ERPCommandEngine:
             expected={}
             for w in self.wallets.all():
                 if w.branch_id==_ctx(command).branch_id:expected[w.id]=self._balance(w.id)
-            actual={k:money(v) for k,v in actual.items()}; discrepancy={k:money(actual.get(k,D0)-expected.get(k,D0)) for k in set(expected)|set(actual)}
+            actual={k:money(v) for k,v in actual.items()}
+            if any(v<0 for v in actual.values()) or any(k not in expected for k in actual):
+                raise DomainError('INVALID_INPUT','أرصدة الإقفال الفعلية غير صحيحة.',{})
+            discrepancy={k:money(actual.get(k,D0)-expected.get(k,D0)) for k in expected}
             c=DailyClosing(_ctx(command).command_id,_ctx(command).branch_id,closing_date,expected,actual,discrepancy,True); self._put(self.closings,c); self._audit(_ctx(command),'CLOSE_DAY',c.id,{'discrepancy':{k:str(v) for k,v in discrepancy.items()}}); self._processed[_ctx(command).idempotency_key]=c; return c
 
 
@@ -360,7 +368,13 @@ class ERPCommandEngine:
             self._auth(_ctx(command),'purchases.pay_supplier'); old=self._idem(_ctx(command))
             if old:return old
             a=money(amount); self._wallet(wallet_id,_ctx(command).branch_id)
+            supplier=self.suppliers.get(supplier_id)
+            if supplier is None: raise DomainError('NOT_FOUND','المورد غير موجود.',{'supplier_id':supplier_id})
+            if getattr(supplier,'branch_ids',()) and _ctx(command).branch_id not in supplier.branch_ids:
+                raise DomainError('BRANCH_ACCESS_DENIED','المورد غير متاح لهذا الفرع.',{})
             if a<=0 or self._balance(wallet_id)<a: raise DomainError('INSUFFICIENT_WALLET_BALANCE','رصيد المحفظة غير كافٍ.',{})
+            if a>self.supplier_balance(supplier_id,_ctx(command).branch_id):
+                raise DomainError('INVALID_PAYMENT','السداد أكبر من رصيد المورد.',{})
             obj={'id':_ctx(command).command_id,'supplier_id':supplier_id,'branch_id':_ctx(command).branch_id,'wallet_id':wallet_id,'amount':a,'reference':reference}
             self._put(self.catalog,obj); self._put(self.ledger,LedgerEntry(f'{obj["id"]}:pay',_ctx(command).branch_id,f'payable:{supplier_id}','SUPPLIER_PAYMENT',debit=a,reference_id=obj['id'])); self._put(self.ledger,LedgerEntry(f'{obj["id"]}:wallet',_ctx(command).branch_id,f'wallet:{wallet_id}','SUPPLIER_PAYMENT',credit=a,reference_id=obj['id'])); self._audit(_ctx(command),'PAY_SUPPLIER',obj['id'],{'amount':str(a)}); self._processed[_ctx(command).idempotency_key]=obj; return obj
 

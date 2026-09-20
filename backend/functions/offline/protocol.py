@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import os
 import sqlite3
+from threading import RLock
 from pathlib import Path
 from typing import Callable, Iterable
 
@@ -60,9 +61,15 @@ class SyncProtocol:
             ON sync_events(tenant_id, branch_id, seq);
         """)
         self.db.commit()
+        self._lock = RLock()
 
     def upload(self, envelopes: Iterable[dict], *, tenant_id: str, branch_id: str,
                executor: Callable[[dict], object], limit: int = 100) -> dict:
+        with self._lock:
+            return self._upload_locked(envelopes, tenant_id=tenant_id, branch_id=branch_id, executor=executor, limit=limit)
+
+    def _upload_locked(self, envelopes, *, tenant_id: str, branch_id: str,
+                       executor: Callable[[dict], object], limit: int = 100):
         envelopes = list(envelopes)
         if len(envelopes) > limit:
             raise DomainError("SYNC_BATCH_TOO_LARGE", "دفعة المزامنة كبيرة جداً.", {"limit": limit})

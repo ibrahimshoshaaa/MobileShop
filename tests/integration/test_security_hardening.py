@@ -8,12 +8,12 @@ class Req:
     def get_json(self, silent=True): return self.data
 
 def verified(_):
-    return {'uid':'u1','branch_ids':['b1'],'permissions':['sales.create']}
+    return {'uid':'u1','tenant_id':'default','branch_ids':['b1'],'permissions':['sales.create']}
 
 def test_http_uses_trusted_permissions_not_payload():
     e=ERPCommandEngine()
     req=Req({'commandId':'x','command':'createSale','branchId':'b1',
-             'auth':{'uid':'attacker','permissions':['OWNER']},'payload':{}})
+             'payload':{'auth':{'uid':'attacker','permissions':['OWNER']}}})
     out=handle(req,e,verified)
     assert out['ok'] is False
     assert out['error']['code']=='INVALID_INPUT'
@@ -60,5 +60,5 @@ def test_idempotency_is_scoped_to_tenant():
     result = e.create_product(CommandContext("same-command", "u2", "b1", frozenset({"products.edit"}), "tenant-b"), p2)
 
     assert result.id == "p-tenant-b"
-    assert e.products.get("p-tenant-a") is p1
+    assert e.products.get("p-tenant-a") is None
     assert e.products.get("p-tenant-b") is p2

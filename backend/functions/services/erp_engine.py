@@ -248,7 +248,7 @@ class ERPCommandEngine:
             down=money(down_payment); rate=dec(rate_percent); term=int(term_months)
             if down<0 or down>s.total or rate<0 or term<=0:raise DomainError('INVALID_INSTALLMENT_TERM','شروط التقسيط غير صحيحة.',{})
             base=money(s.total-down); inc=money(base*rate/Decimal('100')); due=money(base+inc); monthly=(due/term).quantize(Decimal(str(rounding)),rounding=ROUND_HALF_UP)
-            plan=InstallmentPlan(_ctx(command).command_id,sale_id,customer_id,base,rate,inc,due,term,monthly); self._put(self.installments,plan); self._audit(_ctx(command),'CREATE_INSTALLMENT',plan.id,{'total_due':str(due)}); self._processed[plan.id]=plan; return plan
+            plan=InstallmentPlan(_ctx(command).command_id,sale_id,customer_id,base,rate,inc,due,term,monthly); self._put(self.installments,plan); self._audit(_ctx(command),'CREATE_INSTALLMENT',plan.id,{'total_due':str(due)}); self._processed[_ctx(command).idempotency_key]=plan; return plan
 
     def collect_installment(self,command,plan_id,amount,wallet_id):
         with self._lock:

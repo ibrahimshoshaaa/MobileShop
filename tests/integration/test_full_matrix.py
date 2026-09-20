@@ -2,7 +2,7 @@ from decimal import Decimal
 from datetime import date
 import pytest
 from shared.contracts.commands import CommandContext, CreateSaleCommand
-from shared.models.erp import Product, ProductUnit, Wallet, Employee
+from shared.models.erp import Product, ProductUnit, Wallet, Employee, Customer
 from shared.contracts.errors import DomainError
 from backend.functions.services.erp_engine import ERPCommandEngine
 
@@ -10,7 +10,7 @@ def ctx(cid, perms=None):
     p=perms or {'sales.create','sales.void','sales.return','purchases.create','purchases.pay_supplier','expenses.create','stock.adjust','stock.transfer','wallet.transfer','wallet.adjust','transfer.create','installments.create','installments.collect','maintenance.create','maintenance.update','maintenance.parts','closing.close','inventory.create_unit','permissions.change','settings.change','employees.salary'}
     return CommandContext(cid,'u','b1',frozenset(p))
 def base():
-    e=ERPCommandEngine(); e.products.create('p',Product('p','Phone','S','PHONE_NEW',default_cost=Decimal('100'))); e.wallets.create('w',Wallet('w','b1','Cash','CASH')); e.wallets.create('w2',Wallet('w2','b1','Bank','DIGITAL')); e.ledger.create('open',{'id':'open','account_id':'wallet:w','debit':Decimal('500'),'credit':Decimal('0')})
+    e=ERPCommandEngine(); e.customers.create('c', Customer('c','Test Customer')); e.products.create('p',Product('p','Phone','S','PHONE_NEW',default_cost=Decimal('100'))); e.wallets.create('w',Wallet('w','b1','Cash','CASH')); e.wallets.create('w2',Wallet('w2','b1','Bank','DIGITAL')); e.ledger.create('open',{'id':'open','account_id':'wallet:w','debit':Decimal('500'),'credit':Decimal('0')})
     return e
 
 def test_imei_duplicate_and_sale_stock():

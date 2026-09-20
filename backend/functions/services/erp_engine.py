@@ -29,7 +29,8 @@ class ERPCommandEngine:
     def _auth(self,ctx,perm):
         if not getattr(ctx,'user_id',None): raise DomainError('UNAUTHORIZED','تسجيل الدخول مطلوب.',{})
         if perm not in getattr(ctx,'permissions',frozenset()): raise DomainError('FORBIDDEN','لا توجد صلاحية لتنفيذ العملية.',{'permission':perm})
-    def _idem(self,cid): return self._processed.get(cid)
+    def _idem(self, ctx):
+        return self._processed.get(ctx.idempotency_key)
     def _audit(self,ctx,action,ref,details=None):
         self.audit.create(f'{ctx.command_id}:audit',{'command_id':ctx.command_id,'user_id':ctx.user_id,'branch_id':ctx.branch_id,'action':action,'reference_id':ref,'details':details or {}})
     def _wallet(self,wid,bid):
@@ -46,7 +47,7 @@ class ERPCommandEngine:
 
     def create_purchase(self,command,supplier_id,items,paid=D0):
         with self._lock:
-            self._auth(_ctx(command),'purchases.create'); old=self._idem(_ctx(command).command_id)
+            self._auth(_ctx(command),'purchases.create'); old=self._idem(_ctx(command))
             if old:return old
             if not items: raise DomainError('INVALID_INPUT','المشتريات بدون أصناف.',{})
             total=sum((dec(i['quantity'])*dec(i['unit_cost']) for i in items),D0); paid=money(paid)
@@ -79,7 +80,7 @@ class ERPCommandEngine:
                 self.units.update(u.id,nu); self._put(self.stock,StockMovement(f'{p.id}:{u.id}',p.branch_id,i['product_id'],D0,'PURCHASE',p.id,u.id,nu.final_cost))
             self._put(self.ledger,LedgerEntry(f'{p.id}:inventory',p.branch_id,'inventory','PURCHASE',debit=total,reference_id=p.id))
             if paid:self._put(self.ledger,LedgerEntry(f'{p.id}:wallet',p.branch_id,f'wallet:{wallet_id}','PURCHASE_PAYMENT',credit=paid,reference_id=p.id))
-            self._audit(_ctx(command),'CREATE_PURCHASE',p.id,{'total':str(total),'paid':str(paid)}); self._processed[_ctx(command).command_id]=p; return p
+            self._audit(_ctx(command),'CREATE_PURCHASE',p.id,{'total':str(total),'paid':str(paid)}); self._processed[_ctx(command).idempotency_key]=p; return p
 
     def _available_qty(self,bid,pid):
         return sum((m.quantity for m in self.stock.all() if m.branch_id==bid and m.product_id==pid and not m.unit_id),D0)
@@ -91,7 +92,7 @@ class ERPCommandEngine:
 
     def create_sale(self,command):
         with self._lock:
-            self._auth(_ctx(command),'sales.create'); old=self._idem(_ctx(command).command_id)
+            self._auth(_ctx(command),'sales.create'); old=self._idem(_ctx(command))
             if old:return old
             if not command.items: raise DomainError('INVALID_INPUT','الفاتورة بدون أصناف.',{})
             discount=money(command.discount); items=[]; subtotal=D0; cost_total=D0
@@ -125,11 +126,11 @@ class ERPCommandEngine:
             self._put(self.ledger,LedgerEntry(f'{s.id}:revenue',s.branch_id,'sales_revenue','SALE',credit=total,reference_id=s.id))
             self._put(self.ledger,LedgerEntry(f'{s.id}:cogs',s.branch_id,'cost_of_goods_sold','SALE',debit=cost_total,reference_id=s.id))
             for p in pays:self._put(self.ledger,LedgerEntry(p.id,s.branch_id,f'wallet:{p.wallet_id}','SALE_PAYMENT',debit=p.amount,reference_id=s.id))
-            self._audit(_ctx(command),'CREATE_SALE',s.id,{'total':str(total),'discount':str(discount)}); self._processed[_ctx(command).command_id]=s; return s
+            self._audit(_ctx(command),'CREATE_SALE',s.id,{'total':str(total),'discount':str(discount)}); self._processed[_ctx(command).idempotency_key]=s; return s
 
     def void_sale(self,command,sale_id,reason=''):
         with self._lock:
-            self._auth(_ctx(command),'sales.void'); old=self._idem(_ctx(command).command_id)
+            self._auth(_ctx(command),'sales.void'); old=self._idem(_ctx(command))
             if old:return old
             s=self.sales.get(sale_id)
             if not s: raise DomainError('NOT_FOUND','الفاتورة غير موجودة.',{})
@@ -142,11 +143,11 @@ class ERPCommandEngine:
             self._put(self.ledger,LedgerEntry(f'{s.id}:void:revenue',s.branch_id,'sales_revenue','SALE_VOID',debit=s.total,reference_id=s.id,reversal_of=f'{s.id}:revenue'))
             self._put(self.ledger,LedgerEntry(f'{s.id}:void:cogs',s.branch_id,'cost_of_goods_sold','SALE_VOID',credit=sum((i.quantity*i.cost_snapshot for i in s.items),D0),reference_id=s.id,reversal_of=f'{s.id}:cogs'))
             for p in s.payments:self._put(self.ledger,LedgerEntry(f'{s.id}:void:{p.id}',s.branch_id,f'wallet:{p.wallet_id}','SALE_REFUND',credit=p.amount,reference_id=s.id,reversal_of=p.id))
-            self._audit(_ctx(command),'VOID_SALE',s.id,{'reason':reason}); self._processed[_ctx(command).command_id]=ns; return ns
+            self._audit(_ctx(command),'VOID_SALE',s.id,{'reason':reason}); self._processed[_ctx(command).idempotency_key]=ns; return ns
 
     def return_sale(self,command,sale_id,items,refund_wallet_id=None):
         with self._lock:
-            self._auth(_ctx(command),'sales.return'); old=self._idem(_ctx(command).command_id)
+            self._auth(_ctx(command),'sales.return'); old=self._idem(_ctx(command))
             if old:return old
             s=self.sales.get(sale_id)
             if not s:raise DomainError('NOT_FOUND','الفاتورة غير موجودة.',{})
@@ -177,53 +178,53 @@ class ERPCommandEngine:
                 if i.product_unit_id:self.units.update(i.product_unit_id,replace(self.units.get(i.product_unit_id),status='AVAILABLE'))
             self._put(self.ledger,LedgerEntry(f'{rid}:revenue',s.branch_id,'sales_revenue','RETURN',debit=money(refund),reference_id=sale_id))
             if refund_wallet_id:self._put(self.ledger,LedgerEntry(f'{rid}:wallet',s.branch_id,f'wallet:{refund_wallet_id}','RETURN_REFUND',credit=money(refund),reference_id=sale_id))
-            self._audit(_ctx(command),'RETURN_SALE',sale_id,{'amount':str(money(refund))}); self._processed[_ctx(command).command_id]=self.returns.get(rid); return self.returns.get(rid)
+            self._audit(_ctx(command),'RETURN_SALE',sale_id,{'amount':str(money(refund))}); self._processed[_ctx(command).idempotency_key]=self.returns.get(rid); return self.returns.get(rid)
 
     def create_expense(self,command,wallet_id,amount,category,note=None):
         with self._lock:
-            self._auth(_ctx(command),'expenses.create'); old=self._idem(_ctx(command).command_id)
+            self._auth(_ctx(command),'expenses.create'); old=self._idem(_ctx(command))
             if old:return old
             amount=money(amount); self._wallet(wallet_id,_ctx(command).branch_id)
             if amount<=0:raise DomainError('INVALID_INPUT','قيمة المصروف يجب أن تكون موجبة.',{})
             if self._balance(wallet_id)<amount:raise DomainError('INSUFFICIENT_WALLET_BALANCE','رصيد المحفظة غير كافٍ.',{})
             e=Expense(_ctx(command).command_id,_ctx(command).branch_id,wallet_id,amount,category,note=note); self._put(self.expenses,e)
             self._put(self.ledger,LedgerEntry(f'{e.id}:expense',e.branch_id,f'expense:{category}','EXPENSE',debit=amount,reference_id=e.id)); self._put(self.ledger,LedgerEntry(f'{e.id}:wallet',e.branch_id,f'wallet:{wallet_id}','EXPENSE_PAYMENT',credit=amount,reference_id=e.id))
-            self._audit(_ctx(command),'CREATE_EXPENSE',e.id,{'amount':str(amount),'category':category}); self._processed[_ctx(command).command_id]=e; return e
+            self._audit(_ctx(command),'CREATE_EXPENSE',e.id,{'amount':str(amount),'category':category}); self._processed[_ctx(command).idempotency_key]=e; return e
 
     def adjust_stock(self,command,product_id,quantity,cost=0,reason=''):
         with self._lock:
-            self._auth(_ctx(command),'stock.adjust'); old=self._idem(_ctx(command).command_id)
+            self._auth(_ctx(command),'stock.adjust'); old=self._idem(_ctx(command))
             if old:return old
             q=dec(quantity); c=dec(cost)
             if not self.products.get(product_id):raise DomainError('NOT_FOUND','المنتج غير موجود.',{})
             if q==0:raise DomainError('INVALID_INPUT','التعديل لا يمكن أن يكون صفراً.',{})
             if q<0 and self._available_qty(_ctx(command).branch_id,product_id)+q<0:raise DomainError('INSUFFICIENT_STOCK','المخزون غير كافٍ.',{})
             m=StockMovement(_ctx(command).command_id,_ctx(command).branch_id,product_id,q,'ADJUSTMENT',_ctx(command).command_id,None,c)
-            self._put(self.stock,m); self._audit(_ctx(command),'ADJUST_STOCK',m.id,{'quantity':str(q),'reason':reason}); self._processed[_ctx(command).command_id]=m; return m
+            self._put(self.stock,m); self._audit(_ctx(command),'ADJUST_STOCK',m.id,{'quantity':str(q),'reason':reason}); self._processed[_ctx(command).idempotency_key]=m; return m
 
     def transfer_stock(self,command,product_id,quantity,from_branch,to_branch,cost=0):
         with self._lock:
-            self._auth(_ctx(command),'stock.transfer'); old=self._idem(_ctx(command).command_id)
+            self._auth(_ctx(command),'stock.transfer'); old=self._idem(_ctx(command))
             if old:return old
             q=dec(quantity)
             if q<=0:raise DomainError('INVALID_INPUT','الكمية يجب أن تكون موجبة.',{})
             if from_branch!=_ctx(command).branch_id:raise DomainError('BRANCH_ACCESS_DENIED','الفرع المصدر غير مصرح.',{})
             if self._available_qty(from_branch,product_id)<q:raise DomainError('INSUFFICIENT_STOCK','المخزون غير كافٍ.',{})
             tid=_ctx(command).command_id; self._put(self.stock,StockMovement(f'{tid}:out',from_branch,product_id,-q,'TRANSFER_OUT',tid,None,dec(cost))); self._put(self.stock,StockMovement(f'{tid}:in',to_branch,product_id,q,'TRANSFER_IN',tid,None,dec(cost)))
-            self._audit(_ctx(command),'TRANSFER_STOCK',tid,{'from':from_branch,'to':to_branch,'quantity':str(q)}); self._processed[tid]=tid; return tid
+            self._audit(_ctx(command),'TRANSFER_STOCK',tid,{'from':from_branch,'to':to_branch,'quantity':str(q)}); self._processed[_ctx(command).idempotency_key]=tid; return tid
 
     def transfer_between_wallets(self,command,source,destination,amount):
         with self._lock:
-            self._auth(_ctx(command),'wallet.transfer'); old=self._idem(_ctx(command).command_id)
+            self._auth(_ctx(command),'wallet.transfer'); old=self._idem(_ctx(command))
             if old:return old
             a=money(amount); s=self._wallet(source,_ctx(command).branch_id); d=self._wallet(destination,_ctx(command).branch_id)
             if source==destination or a<=0:raise DomainError('INVALID_INPUT','تحويل المحفظة غير صحيح.',{})
             if self._balance(source)<a:raise DomainError('INSUFFICIENT_WALLET_BALANCE','رصيد المحفظة المصدر غير كافٍ.',{})
-            tid=_ctx(command).command_id; self._put(self.ledger,LedgerEntry(f'{tid}:out',_ctx(command).branch_id,f'wallet:{source}','WALLET_TRANSFER',credit=a,reference_id=tid)); self._put(self.ledger,LedgerEntry(f'{tid}:in',_ctx(command).branch_id,f'wallet:{destination}','WALLET_TRANSFER',debit=a,reference_id=tid)); self._audit(_ctx(command),'TRANSFER_WALLET',tid,{'amount':str(a),'source':s.name,'destination':d.name}); self._processed[tid]=tid; return tid
+            tid=_ctx(command).command_id; self._put(self.ledger,LedgerEntry(f'{tid}:out',_ctx(command).branch_id,f'wallet:{source}','WALLET_TRANSFER',credit=a,reference_id=tid)); self._put(self.ledger,LedgerEntry(f'{tid}:in',_ctx(command).branch_id,f'wallet:{destination}','WALLET_TRANSFER',debit=a,reference_id=tid)); self._audit(_ctx(command),'TRANSFER_WALLET',tid,{'amount':str(a),'source':s.name,'destination':d.name}); self._processed[_ctx(command).idempotency_key]=tid; return tid
 
     def create_installment_plan(self,command,sale_id,customer_id,down_payment,rate_percent,term_months,rounding='0.01'):
         with self._lock:
-            self._auth(_ctx(command),'installments.create'); old=self._idem(_ctx(command).command_id)
+            self._auth(_ctx(command),'installments.create'); old=self._idem(_ctx(command))
             if old:return old
             s=self.sales.get(sale_id)
             if not s:raise DomainError('NOT_FOUND','الفاتورة غير موجودة.',{})
@@ -234,14 +235,14 @@ class ERPCommandEngine:
 
     def collect_installment(self,command,plan_id,amount,wallet_id):
         with self._lock:
-            self._auth(_ctx(command),'installments.collect'); old=self._idem(_ctx(command).command_id)
+            self._auth(_ctx(command),'installments.collect'); old=self._idem(_ctx(command))
             if old:return old
             p=self.installments.get(plan_id)
             if not p:raise DomainError('NOT_FOUND','خطة التقسيط غير موجودة.',{})
             a=money(amount); self._wallet(wallet_id,_ctx(command).branch_id)
             paid=sum((x.amount for x in self.installment_payments.all() if x.plan_id==plan_id),D0)
             if a<=0 or paid+a>p.total_due:raise DomainError('INVALID_PAYMENT','قيمة التحصيل تتجاوز المتبقي.',{})
-            ip=InstallmentPayment(_ctx(command).command_id,plan_id,a,wallet_id); self._put(self.installment_payments,ip); self._put(self.ledger,LedgerEntry(f'{ip.id}:wallet',_ctx(command).branch_id,f'wallet:{wallet_id}','INSTALLMENT_PAYMENT',debit=a,reference_id=plan_id)); self._audit(_ctx(command),'COLLECT_INSTALLMENT',plan_id,{'amount':str(a)}); self._processed[ip.id]=ip; return ip
+            ip=InstallmentPayment(_ctx(command).command_id,plan_id,a,wallet_id); self._put(self.installment_payments,ip); self._put(self.ledger,LedgerEntry(f'{ip.id}:wallet',_ctx(command).branch_id,f'wallet:{wallet_id}','INSTALLMENT_PAYMENT',debit=a,reference_id=plan_id)); self._audit(_ctx(command),'COLLECT_INSTALLMENT',plan_id,{'amount':str(a)}); self._processed[_ctx(command).idempotency_key]=ip; return ip
 
     def installment_remaining(self,plan_id):
         p=self.installments.get(plan_id)
@@ -251,77 +252,77 @@ class ERPCommandEngine:
     _MAINT={'RECEIVED':'DIAGNOSING','DIAGNOSING':'WAITING_CUSTOMER','WAITING_CUSTOMER':'IN_PROGRESS','IN_PROGRESS':'READY','READY':'DELIVERED'}
     def create_maintenance_ticket(self,command,customer_id,device,problem,imei=None):
         with self._lock:
-            self._auth(_ctx(command),'maintenance.create'); old=self._idem(_ctx(command).command_id)
+            self._auth(_ctx(command),'maintenance.create'); old=self._idem(_ctx(command))
             if old:return old
             t=MaintenanceTicket(_ctx(command).command_id,_ctx(command).branch_id,customer_id,device,imei,problem); self._put(self.maintenance,t); self._audit(_ctx(command),'CREATE_MAINTENANCE',t.id); self._processed[t.id]=t; return t
     def transition_maintenance(self,command,ticket_id,new_status):
         with self._lock:
-            self._auth(_ctx(command),'maintenance.update'); old=self._idem(_ctx(command).command_id)
+            self._auth(_ctx(command),'maintenance.update'); old=self._idem(_ctx(command))
             if old:return old
             t=self.maintenance.get(ticket_id)
             if not t:raise DomainError('NOT_FOUND','طلب الصيانة غير موجود.',{})
             if t.branch_id!=_ctx(command).branch_id:raise DomainError('BRANCH_ACCESS_DENIED','طلب الصيانة خارج الفرع.',{})
             if new_status!=self._MAINT.get(t.status):raise DomainError('INVALID_INPUT','انتقال حالة الصيانة غير مسموح.',{'from':t.status,'to':new_status})
-            nt=replace(t,status=new_status); self.maintenance.update(ticket_id,nt); self._audit(_ctx(command),'MAINTENANCE_STATUS',ticket_id,{'status':new_status}); self._processed[_ctx(command).command_id]=nt; return nt
+            nt=replace(t,status=new_status); self.maintenance.update(ticket_id,nt); self._audit(_ctx(command),'MAINTENANCE_STATUS',ticket_id,{'status':new_status}); self._processed[_ctx(command).idempotency_key]=nt; return nt
     def cancel_maintenance(self,command,ticket_id):
         with self._lock:
             self._auth(_ctx(command),'maintenance.update'); t=self.maintenance.get(ticket_id)
             if not t:raise DomainError('NOT_FOUND','طلب الصيانة غير موجود.',{})
-            nt=replace(t,status='CANCELLED'); self.maintenance.update(ticket_id,nt); self._audit(_ctx(command),'CANCEL_MAINTENANCE',ticket_id); self._processed[_ctx(command).command_id]=nt; return nt
+            nt=replace(t,status='CANCELLED'); self.maintenance.update(ticket_id,nt); self._audit(_ctx(command),'CANCEL_MAINTENANCE',ticket_id); self._processed[_ctx(command).idempotency_key]=nt; return nt
     def use_maintenance_part(self,command,ticket_id,product_id,quantity,cost):
         with self._lock:
-            self._auth(_ctx(command),'maintenance.parts'); old=self._idem(_ctx(command).command_id)
+            self._auth(_ctx(command),'maintenance.parts'); old=self._idem(_ctx(command))
             if old:return old
             q=dec(quantity); c=dec(cost); t=self.maintenance.get(ticket_id)
             if not t:raise DomainError('NOT_FOUND','طلب الصيانة غير موجود.',{})
             if self._available_qty(t.branch_id,product_id)<q:raise DomainError('INSUFFICIENT_STOCK','المخزون غير كافٍ.',{})
-            part={'id':_ctx(command).command_id,'ticket_id':ticket_id,'product_id':product_id,'quantity':q,'cost':c}; self._put(self.maintenance_parts,part); self._put(self.stock,StockMovement(f'{part["id"]}:stock',t.branch_id,product_id,-q,'MAINTENANCE_USE',ticket_id,None,c)); nt=replace(t,parts_cost=t.parts_cost+q*c); self.maintenance.update(t.id,nt); self._audit(_ctx(command),'USE_MAINTENANCE_PART',ticket_id,{'product_id':product_id,'quantity':str(q)}); self._processed[part['id']]=part; return part
+            part={'id':_ctx(command).command_id,'ticket_id':ticket_id,'product_id':product_id,'quantity':q,'cost':c}; self._put(self.maintenance_parts,part); self._put(self.stock,StockMovement(f'{part["id"]}:stock',t.branch_id,product_id,-q,'MAINTENANCE_USE',ticket_id,None,c)); nt=replace(t,parts_cost=t.parts_cost+q*c); self.maintenance.update(t.id,nt); self._audit(_ctx(command),'USE_MAINTENANCE_PART',ticket_id,{'product_id':product_id,'quantity':str(q)}); self._processed[_ctx(command).idempotency_key]=part; return part
 
     def close_day(self,command,closing_date,actual):
         with self._lock:
-            self._auth(_ctx(command),'closing.close'); old=self._idem(_ctx(command).command_id)
+            self._auth(_ctx(command),'closing.close'); old=self._idem(_ctx(command))
             if old:return old
             if self.closings.all() and any(c.branch_id==_ctx(command).branch_id and c.closing_date==closing_date and c.locked for c in self.closings.all()):raise DomainError('INVALID_INPUT','اليوم مغلق بالفعل.',{})
             expected={}
             for w in self.wallets.all():
                 if w.branch_id==_ctx(command).branch_id:expected[w.id]=self._balance(w.id)
             actual={k:money(v) for k,v in actual.items()}; discrepancy={k:money(actual.get(k,D0)-expected.get(k,D0)) for k in set(expected)|set(actual)}
-            c=DailyClosing(_ctx(command).command_id,_ctx(command).branch_id,closing_date,expected,actual,discrepancy,True); self._put(self.closings,c); self._audit(_ctx(command),'CLOSE_DAY',c.id,{'discrepancy':{k:str(v) for k,v in discrepancy.items()}}); self._processed[c.id]=c; return c
+            c=DailyClosing(_ctx(command).command_id,_ctx(command).branch_id,closing_date,expected,actual,discrepancy,True); self._put(self.closings,c); self._audit(_ctx(command),'CLOSE_DAY',c.id,{'discrepancy':{k:str(v) for k,v in discrepancy.items()}}); self._processed[_ctx(command).idempotency_key]=c; return c
 
 
     def register_product_unit(self,command,unit):
         with self._lock:
-            self._auth(_ctx(command),'inventory.create_unit'); old=self._idem(_ctx(command).command_id)
+            self._auth(_ctx(command),'inventory.create_unit'); old=self._idem(_ctx(command))
             if old:return old
             if unit.branch_id!=_ctx(command).branch_id: raise DomainError('BRANCH_ACCESS_DENIED','الوحدة خارج الفرع.',{})
             for u in self.units.all():
                 if unit.imei1 and (u.imei1==unit.imei1 or u.imei2==unit.imei1) or unit.imei2 and (u.imei1==unit.imei2 or u.imei2==unit.imei2):
                     raise DomainError('IMEI_ALREADY_EXISTS','الـIMEI موجود بالفعل.',{})
             if unit.final_cost<0: raise DomainError('INVALID_INPUT','التكلفة غير صحيحة.',{})
-            self._put(self.units,unit); self._audit(_ctx(command),'REGISTER_PRODUCT_UNIT',unit.id); self._processed[_ctx(command).command_id]=unit; return unit
+            self._put(self.units,unit); self._audit(_ctx(command),'REGISTER_PRODUCT_UNIT',unit.id); self._processed[_ctx(command).idempotency_key]=unit; return unit
 
     def pay_supplier(self,command,supplier_id,wallet_id,amount,reference=None):
         with self._lock:
-            self._auth(_ctx(command),'purchases.pay_supplier'); old=self._idem(_ctx(command).command_id)
+            self._auth(_ctx(command),'purchases.pay_supplier'); old=self._idem(_ctx(command))
             if old:return old
             a=money(amount); self._wallet(wallet_id,_ctx(command).branch_id)
             if a<=0 or self._balance(wallet_id)<a: raise DomainError('INSUFFICIENT_WALLET_BALANCE','رصيد المحفظة غير كافٍ.',{})
             obj={'id':_ctx(command).command_id,'supplier_id':supplier_id,'branch_id':_ctx(command).branch_id,'wallet_id':wallet_id,'amount':a,'reference':reference}
-            self._put(self.catalog,obj); self._put(self.ledger,LedgerEntry(f'{obj["id"]}:pay',_ctx(command).branch_id,f'payable:{supplier_id}','SUPPLIER_PAYMENT',debit=a,reference_id=obj['id'])); self._put(self.ledger,LedgerEntry(f'{obj["id"]}:wallet',_ctx(command).branch_id,f'wallet:{wallet_id}','SUPPLIER_PAYMENT',credit=a,reference_id=obj['id'])); self._audit(_ctx(command),'PAY_SUPPLIER',obj['id'],{'amount':str(a)}); self._processed[obj['id']]=obj; return obj
+            self._put(self.catalog,obj); self._put(self.ledger,LedgerEntry(f'{obj["id"]}:pay',_ctx(command).branch_id,f'payable:{supplier_id}','SUPPLIER_PAYMENT',debit=a,reference_id=obj['id'])); self._put(self.ledger,LedgerEntry(f'{obj["id"]}:wallet',_ctx(command).branch_id,f'wallet:{wallet_id}','SUPPLIER_PAYMENT',credit=a,reference_id=obj['id'])); self._audit(_ctx(command),'PAY_SUPPLIER',obj['id'],{'amount':str(a)}); self._processed[_ctx(command).idempotency_key]=obj; return obj
 
     def adjust_wallet(self,command,wallet_id,amount,reason=''):
         with self._lock:
-            self._auth(_ctx(command),'wallet.adjust'); old=self._idem(_ctx(command).command_id)
+            self._auth(_ctx(command),'wallet.adjust'); old=self._idem(_ctx(command))
             if old:return old
             self._wallet(wallet_id,_ctx(command).branch_id); a=money(amount)
             if a==0: raise DomainError('INVALID_INPUT','التعديل لا يمكن أن يكون صفراً.',{})
             if a<0 and self._balance(wallet_id)+a<0: raise DomainError('INSUFFICIENT_WALLET_BALANCE','الرصيد لا يسمح بالتعديل.',{})
             typ='WALLET_ADJUST_IN' if a>0 else 'WALLET_ADJUST_OUT'; entry=LedgerEntry(_ctx(command).command_id,_ctx(command).branch_id,f'wallet:{wallet_id}',typ,debit=max(a,D0),credit=max(-a,D0),reference_id=_ctx(command).command_id)
-            self._put(self.ledger,entry); self._audit(_ctx(command),'ADJUST_WALLET',entry.id,{'amount':str(a),'reason':reason}); self._processed[entry.id]=entry; return entry
+            self._put(self.ledger,entry); self._audit(_ctx(command),'ADJUST_WALLET',entry.id,{'amount':str(a),'reason':reason}); self._processed[_ctx(command).idempotency_key]=entry; return entry
 
     def create_transfer(self,command,source_wallet,destination_wallet,amount,commission=None):
         with self._lock:
-            self._auth(_ctx(command),'transfer.create'); old=self._idem(_ctx(command).command_id)
+            self._auth(_ctx(command),'transfer.create'); old=self._idem(_ctx(command))
             if old:return old
             a=money(amount); s=self._wallet(source_wallet,_ctx(command).branch_id); d=self._wallet(destination_wallet,_ctx(command).branch_id)
             if a<=0 or self._balance(source_wallet)<a: raise DomainError('INSUFFICIENT_WALLET_BALANCE','الرصيد غير كافٍ.',{})
@@ -332,24 +333,24 @@ class ERPCommandEngine:
             self._put(self.ledger,LedgerEntry(f'{tid}:principal-out',_ctx(command).branch_id,f'wallet:{source_wallet}','TRANSFER_PRINCIPAL',credit=a,reference_id=tid))
             self._put(self.ledger,LedgerEntry(f'{tid}:principal-in',_ctx(command).branch_id,f'wallet:{destination_wallet}','TRANSFER_PRINCIPAL',debit=a,reference_id=tid))
             if comm:self._put(self.ledger,LedgerEntry(f'{tid}:commission',_ctx(command).branch_id,'transfer_commission','TRANSFER_COMMISSION',credit=comm,reference_id=tid))
-            obj={'id':tid,'source_wallet_id':source_wallet,'destination_wallet_id':destination_wallet,'amount':a,'commission':comm}; self._put(self.transfers,obj); self._audit(_ctx(command),'CREATE_TRANSFER',tid,{'amount':str(a),'commission':str(comm)}); self._processed[tid]=obj; return obj
+            obj={'id':tid,'source_wallet_id':source_wallet,'destination_wallet_id':destination_wallet,'amount':a,'commission':comm}; self._put(self.transfers,obj); self._audit(_ctx(command),'CREATE_TRANSFER',tid,{'amount':str(a),'commission':str(comm)}); self._processed[_ctx(command).idempotency_key]=obj; return obj
 
     def set_permission(self,command,user_id,permission,enabled=True):
         with self._lock:
-            self._auth(_ctx(command),'permissions.change'); old=self._idem(_ctx(command).command_id)
+            self._auth(_ctx(command),'permissions.change'); old=self._idem(_ctx(command))
             if old:return old
             current=self.settings.get(f'user:{user_id}:permissions') or {'id':f'user:{user_id}:permissions','permissions':set()}
-            perms=set(current['permissions']); (perms.add(permission) if enabled else perms.discard(permission)); current['permissions']=frozenset(perms); self._put(self.settings,current); self._audit(_ctx(command),'CHANGE_PERMISSION',user_id,{'permission':permission,'enabled':enabled}); self._processed[_ctx(command).command_id]=current; return current
+            perms=set(current['permissions']); (perms.add(permission) if enabled else perms.discard(permission)); current['permissions']=frozenset(perms); self._put(self.settings,current); self._audit(_ctx(command),'CHANGE_PERMISSION',user_id,{'permission':permission,'enabled':enabled}); self._processed[_ctx(command).idempotency_key]=current; return current
 
     def set_setting(self,command,key,value):
         with self._lock:
-            self._auth(_ctx(command),'settings.change'); old=self._idem(_ctx(command).command_id)
+            self._auth(_ctx(command),'settings.change'); old=self._idem(_ctx(command))
             if old:return old
-            obj={'id':key,'value':value,'updated_by':_ctx(command).user_id,'branch_id':_ctx(command).branch_id}; self.settings.create(key,obj) if not self.settings.get(key) else self.settings.update(key,obj); self._audit(_ctx(command),'CHANGE_SETTING',key,{'value':value}); self._processed[_ctx(command).command_id]=obj; return obj
+            obj={'id':key,'value':value,'updated_by':_ctx(command).user_id,'branch_id':_ctx(command).branch_id}; self.settings.create(key,obj) if not self.settings.get(key) else self.settings.update(key,obj); self._audit(_ctx(command),'CHANGE_SETTING',key,{'value':value}); self._processed[_ctx(command).idempotency_key]=obj; return obj
 
     def calculate_salary(self,command,employee_id,period,base,commission=0,bonus=0,deductions=0):
         with self._lock:
-            self._auth(_ctx(command),'employees.salary'); old=self._idem(_ctx(command).command_id)
+            self._auth(_ctx(command),'employees.salary'); old=self._idem(_ctx(command))
             if old:return old
             e=self.employees.get(employee_id)
             if not e:raise DomainError('NOT_FOUND','الموظف غير موجود.',{})
@@ -359,13 +360,13 @@ class ERPCommandEngine:
 
     def pay_salary(self,command,salary_id,wallet_id):
         with self._lock:
-            self._auth(_ctx(command),'employees.salary'); old=self._idem(_ctx(command).command_id)
+            self._auth(_ctx(command),'employees.salary'); old=self._idem(_ctx(command))
             if old:return old
             r=self.salary_records.get(salary_id)
             if not r:raise DomainError('NOT_FOUND','سجل الراتب غير موجود.',{})
             a=money(r.base+r.commission+r.bonus-r.deductions); self._wallet(wallet_id,_ctx(command).branch_id)
             if self._balance(wallet_id)<a:raise DomainError('INSUFFICIENT_WALLET_BALANCE','رصيد المحفظة غير كافٍ.',{})
-            nr=replace(r,paid=a); self.salary_records.update(r.id,nr); self._put(self.ledger,LedgerEntry(f'{r.id}:salary',_ctx(command).branch_id,'salary_expense','SALARY',debit=a,reference_id=r.id)); self._put(self.ledger,LedgerEntry(f'{r.id}:wallet',_ctx(command).branch_id,f'wallet:{wallet_id}','SALARY_PAYMENT',credit=a,reference_id=r.id)); self._audit(_ctx(command),'PAY_SALARY',r.id,{'amount':str(a)}); self._processed[_ctx(command).command_id]=nr; return nr
+            nr=replace(r,paid=a); self.salary_records.update(r.id,nr); self._put(self.ledger,LedgerEntry(f'{r.id}:salary',_ctx(command).branch_id,'salary_expense','SALARY',debit=a,reference_id=r.id)); self._put(self.ledger,LedgerEntry(f'{r.id}:wallet',_ctx(command).branch_id,f'wallet:{wallet_id}','SALARY_PAYMENT',credit=a,reference_id=r.id)); self._audit(_ctx(command),'PAY_SALARY',r.id,{'amount':str(a)}); self._processed[_ctx(command).idempotency_key]=nr; return nr
 
     def reports(self,branch_id,start=None,end=None):
         sales=[s for s in self.sales.all() if s.branch_id==branch_id and s.status!='VOIDED' and (not start or s.created_at.date()>=start) and (not end or s.created_at.date()<=end)]

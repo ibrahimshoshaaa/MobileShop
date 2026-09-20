@@ -39,3 +39,5 @@ jobs:
         run: bandit -q -r backend shared -x tests
       - name: Dependency audit
         run: pip-audit -r backend/api_server/requirements.txt
+
+# CI hardening track: rerun after security regression fix.

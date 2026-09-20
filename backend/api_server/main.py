@@ -71,6 +71,12 @@ app = FastAPI(
 _DB_PATH = Path(__file__).resolve().parent / "data" / "dev_erp.db"
 _DB_PATH.parent.mkdir(parents=True, exist_ok=True)
 
+if os.getenv("APP_ENV", "development").lower() == "production":
+    if os.getenv("AUTH_PROVIDER", "dev").lower() != "firebase":
+        raise RuntimeError("Production requires AUTH_PROVIDER=firebase")
+    if not os.getenv("TURSO_DATABASE_URL") or not os.getenv("TURSO_AUTH_TOKEN"):
+        raise RuntimeError("Production requires TURSO_DATABASE_URL and TURSO_AUTH_TOKEN")
+
 # A single in-process engine instance shared by every request. Persists to
 # _DB_PATH (see durable_engine.py) — survives restarts of this process, but
 # is still one local SQLite file, not a managed remote database.

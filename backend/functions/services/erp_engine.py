@@ -273,7 +273,9 @@ class ERPCommandEngine:
             nt=replace(t,status=new_status); self.maintenance.update(ticket_id,nt); self._audit(_ctx(command),'MAINTENANCE_STATUS',ticket_id,{'status':new_status}); self._processed[_ctx(command).idempotency_key]=nt; return nt
     def cancel_maintenance(self,command,ticket_id):
         with self._lock:
-            self._auth(_ctx(command),'maintenance.update'); t=self.maintenance.get(ticket_id)
+            self._auth(_ctx(command),'maintenance.update'); old=self._idem(_ctx(command))
+            if old:return old
+            t=self.maintenance.get(ticket_id)
             if not t:raise DomainError('NOT_FOUND','طلب الصيانة غير موجود.',{})
             nt=replace(t,status='CANCELLED'); self.maintenance.update(ticket_id,nt); self._audit(_ctx(command),'CANCEL_MAINTENANCE',ticket_id); self._processed[_ctx(command).idempotency_key]=nt; return nt
     def use_maintenance_part(self,command,ticket_id,product_id,quantity,cost):

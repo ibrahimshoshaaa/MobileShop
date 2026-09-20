@@ -143,6 +143,12 @@ class ERPCommandEngine:
             if not s: raise DomainError('NOT_FOUND','الفاتورة غير موجودة.',{})
             if s.branch_id!=_ctx(command).branch_id: raise DomainError('BRANCH_ACCESS_DENIED','الفاتورة خارج الفرع.',{})
             if s.status=='VOIDED': raise DomainError('SALE_ALREADY_VOIDED','الفاتورة ملغاة بالفعل.',{})
+            # A void reverses the original wallet inflows. Validate every
+            # refund wallet before mutating any state so a void cannot create
+            # a negative cash/digital balance halfway through the operation.
+            for payment in s.payments:
+                if self._balance(payment.wallet_id) < payment.amount:
+                    raise DomainError('INSUFFICIENT_WALLET_BALANCE','رصيد محفظة رد المبلغ غير كافٍ.',{'wallet_id':payment.wallet_id})
             ns=replace(s,status='VOIDED'); self.sales.update(s.id,ns)
             for i in s.items:
                 self._put(self.stock,StockMovement(f'{s.id}:void:{i.id}',s.branch_id,i.product_id,i.quantity,'VOID_RETURN',s.id,i.product_unit_id,i.cost_snapshot))

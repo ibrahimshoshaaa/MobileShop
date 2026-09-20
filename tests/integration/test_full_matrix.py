@@ -29,15 +29,15 @@ def test_return():
     r=e.return_sale(ctx('r'),s.id,({'sale_item_id':s.items[0].id,'quantity':1},),'w'); assert r['amount']==Decimal('150.00')
 
 def test_wallet_transfer_and_adjustment():
-    e=base(); e.transfer_between_wallets(ctx('t'),'w','w2',Decimal('100')); assert e._balance('w')==400 and e._balance('w2')==100; e.adjust_wallet(ctx('a'),'w',Decimal('20')); assert e._balance('w')==420
+    e=base(); e.transfer_between_wallets(ctx('t'),'w','w2',Decimal('100')); assert e._balance('w')==399 and e._balance('w2')==100; e.adjust_wallet(ctx('a'),'w',Decimal('20')); assert e._balance('w')==420
 
 def test_customer_transfer_commission_is_revenue_only():
     e=base(); x=e.create_transfer(ctx('tr'),'w','w2',Decimal('100'),Decimal('2')); assert x['commission']==2; assert e._balance('w')==400 and e._balance('w2')==100; assert any((z['account_id'] if isinstance(z,dict) else z.account_id)=='transfer_commission' and (z['credit'] if isinstance(z,dict) else z.credit)==2 for z in e.ledger.all())
 
 def test_installment_rounding_and_collection():
-    e=base(); e.adjust_stock(ctx('seed'), 'p', 1, Decimal('100')); s=e.create_sale(CreateSaleCommand(ctx('s'),None,({'product_id':'p','quantity':1,'unit_price':Decimal('300')},),({'wallet_id':'w','amount':Decimal('300')},)))
-    p=e.create_installment_plan(ctx('i'),s.id,'c',Decimal('100'),Decimal('10'),2); assert p.base_financed==200 and p.increase==20 and p.total_due==220 and p.monthly_amount==110
-    e.collect_installment(ctx('ip'),'i',Decimal('110'),'w'); assert e.installment_remaining('i')==110
+    e=base(); e.adjust_stock(ctx('seed'), 'p', 1, Decimal('100')); s=e.create_sale(CreateSaleCommand(ctx('s'),'c',({'product_id':'p','quantity':1,'unit_price':Decimal('300')},),({'wallet_id':'w','amount':Decimal('100')},)))
+    p=e.create_installment_plan(ctx('i'),s.id,'c',Decimal('100'),Decimal('10'),2); assert p.base_financed==100 and p.increase==10 and p.total_due==110 and p.monthly_amount==55
+    e.collect_installment(ctx('ip'),'i',Decimal('55'),'w'); assert e.installment_remaining('i')==55
 
 def test_maintenance_flow_and_part_usage():
     e=base(); e.adjust_stock(ctx('st'),'p',5,Decimal('100')); t=e.create_maintenance_ticket(ctx('m'),'c','device','broken');

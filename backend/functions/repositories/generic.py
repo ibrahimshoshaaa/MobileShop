@@ -30,6 +30,7 @@ class Repository:
         owner = self._tenant_by_id.get(record_id, "legacy")
         # Legacy fixtures are visible only to the explicit default tenant.
         # Production tenants can never read unscoped historical data.
+        return owner == scope
 
     def get(self, k):
         value = self._data.get(k)

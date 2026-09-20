@@ -1,6 +1,6 @@
 # Mobile Shop ERP — الملف الأم (تتبّع كل الفيتشرز والخطوات)
 
-**آخر تحديث:** 2026-09-20 — آخر CI ناجح بعد تنفيذ حزمة hardening التالية على `production-hardening/rc3`: tenant isolation، production auth boundary، Turso/libSQL path، secured query/sync API، offline sync protocol، concurrency coverage، backup/restore drill، وstaging smoke automation.
+**آخر تحديث:** 2026-09-20 — تم تحديث المسار بعد اكتشاف وإصلاح اختبارات ERP regression؛ آخر تشغيل للـHEAD الحالي ما زال قيد التنفيذ على `production-hardening/rc3`: tenant isolation، production auth boundary، Turso/libSQL path، secured query/sync API، offline sync protocol، concurrency coverage، backup/restore drill، وstaging smoke automation.
 
 > هذا الملف هو المرجع الوحيد لحالة المشروع: ما تم إنجازه، وما هو قيد التنفيذ، وما يجب إكماله قبل اعتبار النسخة Production-ready.
 
@@ -87,7 +87,7 @@
 - ✅ `.env.example` لمتطلبات الإنتاج.
 - ✅ `SECURITY.md`.
 - ✅ `docs/PRODUCTION_RELEASE_PLAN.md`.
-- ✅ آخر تشغيل CI أخضر: **102 passed + Bandit passed + pip-audit passed**.
+- ✅ آخر CI أخضر قبل حزمة ERP regression كان ناجحاً؛ ثم أضافت المراجعة اختبارات ERP جديدة كشفت 5 إخفاقات، وتم إصلاح أسبابها/تهيئة الاختبارات. تشغيل CI على الـHEAD الحالي ما زال قيد التنفيذ.
 - ✅ اختبارات concurrency/multi-device sync أضيفت.
 - ✅ staging smoke script + manual GitHub workflow أضيفا.
 - ⬜ تشغيل staging smoke فعلياً بعد ضبط secrets.
@@ -228,8 +228,8 @@
 ## الحالة الحالية
 
 **Branch:** `production-hardening/rc3`  
-**CI:** 🟢 أخضر — آخر run ناجح  
-**Tests:** 🟢 112 passed  
+**CI:** 🟡 قيد التحقق على آخر HEAD (الإخفاقات السابقة كانت من اختبارات ERP الجديدة)  
+**Tests:** 🟡 آخر run مكتمل قبل الإصلاحات: 118 passed / 5 failed؛ آخر HEAD قيد الاختبار  
 **Bandit:** 🟢 passed  
 **pip-audit:** 🟢 passed  
 **Production-ready:** ⬜ لا — يلزم staging/Turso operational verification  

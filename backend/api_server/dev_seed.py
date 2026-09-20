@@ -25,7 +25,7 @@ def seed_dev_data(engine) -> None:
                     selling_price=Decimal("100"),
                     default_cost=Decimal("60"),
                 ),
-            )
+            , tenant_id="dev-tenant")
             engine.stock.create(
                 "seed-stock-1",
                 StockMovement(
@@ -36,7 +36,7 @@ def seed_dev_data(engine) -> None:
                     movement_type="OPENING_BALANCE",
                     reference_id="dev-seed",
                 ),
-            )
+            , tenant_id="dev-tenant")
             engine.wallets.create(
                 "demo-wallet-cash",
                 Wallet(
@@ -45,10 +45,11 @@ def seed_dev_data(engine) -> None:
                     name="الخزينة النقدية",
                     wallet_type="CASH",
                 ),
-            )
+            , tenant_id="dev-tenant")
             engine.customers.create(
                 "demo-customer-1",
                 Customer(id="demo-customer-1", name="عميل تجريبي"),
+                tenant_id="dev-tenant",
             )
 
         engine.transaction(_seed)

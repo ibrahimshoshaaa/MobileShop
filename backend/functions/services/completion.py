@@ -247,10 +247,8 @@ def install_completion(engine_cls):
             # must never erase tenant context before the command's own _auth()
             # establishes/validates it.
             previous_scope = current_tenant()
-            scope_token = None
+            scope_token = set_tenant_scope(previous_scope)
             try:
-                if previous_scope is not None:
-                    scope_token = set_tenant_scope(previous_scope)
                 return fn()
             except Exception:
                 for r,snap,tenant_snap in zip(repos,snapshots,tenant_snapshots):

@@ -23,10 +23,12 @@ from shared.models.erp import Customer, Product, StockMovement, Wallet
 
 
 def seed_dev_data(engine) -> None:
-    if engine.products.get("demo-product-1") is not None:
-        return  # already seeded (durable engine reloaded it from a previous run)
+    token = set_tenant_scope("dev-tenant")
+    try:
+        if engine.products.get("demo-product-1") is not None:
+            return  # already seeded
 
-    branch_id = "LOCAL_BRANCH"
+        branch_id = "LOCAL_BRANCH"
 
     def _seed():
         engine.products.create("demo-product-1", Product(
@@ -42,4 +44,6 @@ def seed_dev_data(engine) -> None:
         ))
         engine.customers.create("demo-customer-1", Customer(id="demo-customer-1", name="عميل تجريبي"))
 
-    engine.transaction(_seed)
+        engine.transaction(_seed)
+    finally:
+        reset_tenant_scope(token)

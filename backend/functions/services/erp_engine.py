@@ -33,6 +33,7 @@ class ERPCommandEngine:
         if not tenant_id:
             raise DomainError('TENANT_REQUIRED','هوية المستأجر مطلوبة.',{})
         set_tenant_scope(str(tenant_id))
+        self._active_tenant = str(tenant_id)
         if perm not in getattr(ctx,'permissions',frozenset()):
             raise DomainError('FORBIDDEN','لا توجد صلاحية لتنفيذ العملية.',{'permission':perm})
     def _idem(self, ctx):
@@ -49,7 +50,7 @@ class ERPCommandEngine:
         return sum((dec(val(e,'debit'))-dec(val(e,'credit')) for e in self.ledger.all() if val(e,'account_id')==f'wallet:{wid}'),D0)
     def _put(self,repo,obj):
         oid=obj.id if hasattr(obj,'id') else obj['id']
-        repo.create(oid,obj)
+        repo.create(oid, obj, tenant_id=getattr(self, "_active_tenant", None))
 
     def create_purchase(self,command,supplier_id,items,paid=D0):
         with self._lock:

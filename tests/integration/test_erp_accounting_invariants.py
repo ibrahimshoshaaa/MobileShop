@@ -16,6 +16,7 @@ def seeded():
     e = ERPCommandEngine()
     e.products.create("p1", Product("p1", "Phone", "SKU1", "PHONE_NEW", default_cost=Decimal("100")))
     e.wallets.create("cash", Wallet("cash", "b1", "Cash", "CASH"))
+    e.adjust_stock(ctx("opening-stock", {"stock.adjust"}), "p1", Decimal("10"), Decimal("100"))
     e.ledger.create("opening", LedgerEntry(
         "opening", "b1", "wallet:cash", "OPENING", debit=Decimal("1000")
     ))

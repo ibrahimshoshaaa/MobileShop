@@ -104,7 +104,10 @@ def install_completion(engine_cls):
         with self._lock:
             self._auth(ctx,'sales.return'); old=self._idem(ctx)
             if old:return old
-            ret=self.return_sale(replace(ctx,command_id=f'{ctx.command_id}:exchange-return'),sale_id,return_items,None)
+            original=self.sales.get(sale_id)
+            if original is None: raise DomainError('NOT_FOUND','الفاتورة غير موجودة.',{})
+            refund_wallet_id=original.payments[0].wallet_id if original.payments else None
+            ret=self.return_sale(replace(ctx,command_id=f'{ctx.command_id}:exchange-return'),sale_id,return_items,refund_wallet_id)
             # New sale uses a distinct deterministic child command.
             newctx=replace(ctx,command_id=f'{ctx.command_id}:exchange-sale')
             from shared.contracts.commands import CreateSaleCommand

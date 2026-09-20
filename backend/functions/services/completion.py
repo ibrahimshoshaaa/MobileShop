@@ -4,7 +4,7 @@ from datetime import date, timedelta
 from decimal import Decimal, ROUND_HALF_UP
 from shared.models.erp import *
 from shared.contracts.errors import DomainError
-from backend.functions.repositories.generic import set_tenant_scope, reset_tenant_scope
+from backend.functions.repositories.generic import current_tenant, set_tenant_scope, reset_tenant_scope
 
 D0=Decimal('0'); CENT=Decimal('0.01')
 def M(v): return Decimal(str(v)).quantize(CENT, rounding=ROUND_HALF_UP)
@@ -243,8 +243,14 @@ def install_completion(engine_cls):
             snapshots=[dict(r._data) for r in repos]
             tenant_snapshots=[dict(r._tenant_by_id) for r in repos]
             processed=dict(self._processed)
-            scope_token=set_tenant_scope(None)
+            # Preserve the caller's request scope. The transaction wrapper
+            # must never erase tenant context before the command's own _auth()
+            # establishes/validates it.
+            previous_scope = current_tenant()
+            scope_token = None
             try:
+                if previous_scope is not None:
+                    scope_token = set_tenant_scope(previous_scope)
                 return fn()
             except Exception:
                 for r,snap,tenant_snap in zip(repos,snapshots,tenant_snapshots):

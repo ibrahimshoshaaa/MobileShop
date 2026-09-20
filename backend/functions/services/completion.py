@@ -229,8 +229,10 @@ def install_completion(engine_cls):
                 if i.product_unit_id:self.units.update(i.product_unit_id,replace(self.units.get(i.product_unit_id),status='SOLD'))
                 self._put(self.stock,StockMovement(f'{s.id}:out:{i.id}',s.branch_id,i.product_id,-i.quantity,'SALE',s.id,i.product_unit_id,i.cost_snapshot))
             self._put(self.ledger,LedgerEntry(f'{s.id}:revenue',ctx.branch_id,'sales_revenue','SALE',credit=total,reference_id=s.id))
-            self._put(self.ledger,LedgerEntry(f'{s.id}:cogs',ctx.branch_id,'cost_of_goods_sold','SALE',debit=cogs,reference_id=s.id))
             for p in pays:self._put(self.ledger,LedgerEntry(p.id,ctx.branch_id,f'wallet:{p.wallet_id}','SALE_PAYMENT',debit=p.amount,reference_id=s.id))
+            if cogs:
+                self._put(self.ledger,LedgerEntry(f'{s.id}:cogs',ctx.branch_id,'cost_of_goods_sold','SALE',debit=cogs,reference_id=s.id))
+                self._put(self.ledger,LedgerEntry(f'{s.id}:inventory',ctx.branch_id,'inventory','SALE',credit=cogs,reference_id=s.id))
             receivable=total-paid
             if receivable:self._put(self.ledger,LedgerEntry(f'{s.id}:customer',ctx.branch_id,f'customer:{command.customer_id}','CUSTOMER_RECEIVABLE',debit=receivable,reference_id=s.id))
             self._audit(ctx,'CREATE_SALE',s.id,{'total':str(total),'discount':str(discount),'paid':str(paid),'credit':str(receivable)}); self._processed[ctx.idempotency_key]=s; return s
@@ -298,9 +300,9 @@ def install_completion(engine_cls):
                 self._put(self.ledger,LedgerEntry(f'{ctx.command_id}:cash-in',ctx.branch_id,f'wallet:{source_wallet}','CUSTOMER_TRANSFER_IN',debit=a+actual,reference_id=ctx.command_id))
                 self._put(self.ledger,LedgerEntry(f'{ctx.command_id}:digital-out',ctx.branch_id,f'wallet:{destination_wallet}','CUSTOMER_TRANSFER_OUT',credit=a,reference_id=ctx.command_id))
             elif src_type not in cash_types and dst_type in cash_types:
-                if self._balance(source_wallet)<a: raise DomainError('INSUFFICIENT_WALLET_BALANCE','الرصيد الرقمي غير كافٍ.',{})
+                if self._balance(source_wallet)<a+actual: raise DomainError('INSUFFICIENT_WALLET_BALANCE','الرصيد الرقمي غير كافٍ.',{})
                 if self._balance(destination_wallet)<a: raise DomainError('INSUFFICIENT_WALLET_BALANCE','الرصيد النقدي غير كافٍ.',{})
-                self._put(self.ledger,LedgerEntry(f'{ctx.command_id}:digital-in',ctx.branch_id,f'wallet:{source_wallet}','CUSTOMER_TRANSFER_IN',debit=a,reference_id=ctx.command_id))
+                self._put(self.ledger,LedgerEntry(f'{ctx.command_id}:digital-in',ctx.branch_id,f'wallet:{source_wallet}','CUSTOMER_TRANSFER_IN',debit=a+actual,reference_id=ctx.command_id))
                 self._put(self.ledger,LedgerEntry(f'{ctx.command_id}:cash-out',ctx.branch_id,f'wallet:{destination_wallet}','CUSTOMER_TRANSFER_OUT',credit=a,reference_id=ctx.command_id))
             else:
                 raise DomainError('INVALID_INPUT','تحويل العميل يجب أن يكون بين محفظة نقدية ومحفظة رقمية.',{})

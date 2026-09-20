@@ -13,42 +13,42 @@ def install_completion(engine_cls):
     def create_product(self, command, product):
         ctx=command.context if hasattr(command,'context') else command
         with self._lock:
-            self._auth(ctx,'products.edit'); old=self._idem(ctx.command_id)
+            self._auth(ctx,'products.edit'); old=self._idem(ctx)
             if old:return old
             for p in self.products.all():
                 if p.sku==product.sku or (product.barcode and p.barcode==product.barcode):
                     raise DomainError('DUPLICATE_PRODUCT','SKU أو Barcode مستخدم بالفعل.',{})
-            self._put(self.products,product); self._audit(ctx,'CREATE_PRODUCT',product.id); self._processed[ctx.command_id]=product; return product
+            self._put(self.products,product); self._audit(ctx,'CREATE_PRODUCT',product.id); self._processed[ctx.idempotency_key]=product; return product
     def update_product(self, command, product_id, **changes):
         ctx=command.context if hasattr(command,'context') else command
         with self._lock:
-            self._auth(ctx,'products.edit'); old=self._idem(ctx.command_id)
+            self._auth(ctx,'products.edit'); old=self._idem(ctx)
             if old:return old
             p=self.products.get(product_id)
             if not p: raise DomainError('NOT_FOUND','المنتج غير موجود.',{})
-            np=replace(p,**changes); self.products.update(product_id,np); self._audit(ctx,'CHANGE_PRODUCT',product_id,{'changes':changes}); self._processed[ctx.command_id]=np; return np
+            np=replace(p,**changes); self.products.update(product_id,np); self._audit(ctx,'CHANGE_PRODUCT',product_id,{'changes':changes}); self._processed[ctx.idempotency_key]=np; return np
     def create_customer(self, command, customer):
         ctx=command.context if hasattr(command,'context') else command
         with self._lock:
-            self._auth(ctx,'customers.edit'); old=self._idem(ctx.command_id)
+            self._auth(ctx,'customers.edit'); old=self._idem(ctx)
             if old:return old
-            self._put(self.customers,customer); self._audit(ctx,'CREATE_CUSTOMER',customer.id); self._processed[ctx.command_id]=customer; return customer
+            self._put(self.customers,customer); self._audit(ctx,'CREATE_CUSTOMER',customer.id); self._processed[ctx.idempotency_key]=customer; return customer
     def create_supplier(self, command, supplier):
         ctx=command.context if hasattr(command,'context') else command
         with self._lock:
-            self._auth(ctx,'suppliers.edit'); old=self._idem(ctx.command_id)
+            self._auth(ctx,'suppliers.edit'); old=self._idem(ctx)
             if old:return old
-            self._put(self.suppliers,supplier); self._audit(ctx,'CREATE_SUPPLIER',supplier.id); self._processed[ctx.command_id]=supplier; return supplier
+            self._put(self.suppliers,supplier); self._audit(ctx,'CREATE_SUPPLIER',supplier.id); self._processed[ctx.idempotency_key]=supplier; return supplier
     def create_wallet(self, command, wallet):
         ctx=command.context if hasattr(command,'context') else command
         with self._lock:
-            self._auth(ctx,'wallets.edit'); old=self._idem(ctx.command_id)
+            self._auth(ctx,'wallets.edit'); old=self._idem(ctx)
             if old:return old
             if wallet.branch_id!=ctx.branch_id: raise DomainError('BRANCH_ACCESS_DENIED','لا يمكن إنشاء محفظة خارج الفرع.',{})
             for w in self.wallets.all():
                 if w.branch_id==wallet.branch_id and w.name==wallet.name:
                     raise DomainError('DUPLICATE_WALLET','اسم المحفظة مستخدم بالفعل في هذا الفرع.',{})
-            self._put(self.wallets,wallet); self._audit(ctx,'CREATE_WALLET',wallet.id); self._processed[ctx.command_id]=wallet; return wallet
+            self._put(self.wallets,wallet); self._audit(ctx,'CREATE_WALLET',wallet.id); self._processed[ctx.idempotency_key]=wallet; return wallet
     def customer_balance(self, customer_id, branch_id=None):
         bal=D0
         for e in self.ledger.all():
@@ -101,7 +101,7 @@ def install_completion(engine_cls):
     def exchange_sale(self, command, sale_id, return_items, new_items, payments=()):
         ctx=command.context if hasattr(command,'context') else command
         with self._lock:
-            self._auth(ctx,'sales.return'); old=self._idem(ctx.command_id)
+            self._auth(ctx,'sales.return'); old=self._idem(ctx)
             if old:return old
             ret=self.return_sale(replace(ctx,command_id=f'{ctx.command_id}:exchange-return'),sale_id,return_items,None)
             # New sale uses a distinct deterministic child command.
@@ -109,7 +109,7 @@ def install_completion(engine_cls):
             from shared.contracts.commands import CreateSaleCommand
             sale=self.create_sale(CreateSaleCommand(newctx, self.sales.get(sale_id).customer_id, tuple(new_items), tuple(payments), Decimal('0')))
             obj={'id':ctx.command_id,'type':'EXCHANGE','return_id':ret['id'],'new_sale_id':sale.id,'difference':M(sale.total-ret['amount'])}
-            self._put(self.returns,{**obj,'id':f'{ctx.command_id}:exchange','exchange_id':ctx.command_id}); self._audit(ctx,'EXCHANGE_SALE',sale_id,{'new_sale_id':sale.id}); self._processed[ctx.command_id]=obj; return obj
+            self._put(self.returns,{**obj,'id':f'{ctx.command_id}:exchange','exchange_id':ctx.command_id}); self._audit(ctx,'EXCHANGE_SALE',sale_id,{'new_sale_id':sale.id}); self._processed[ctx.idempotency_key]=obj; return obj
     def warranty_check(self, branch_id, imei, as_of=None):
         as_of=as_of or date.today()
         for u in self.units.all():
@@ -119,7 +119,7 @@ def install_completion(engine_cls):
     def deliver_maintenance(self, command, ticket_id, final_price, payment, wallet_id):
         ctx=command.context if hasattr(command,'context') else command
         with self._lock:
-            self._auth(ctx,'maintenance.update'); old=self._idem(ctx.command_id)
+            self._auth(ctx,'maintenance.update'); old=self._idem(ctx)
             if old:return old
             t=self.maintenance.get(ticket_id)
             if not t:raise DomainError('NOT_FOUND','طلب الصيانة غير موجود.',{})
@@ -131,7 +131,7 @@ def install_completion(engine_cls):
             if pay:self._put(self.ledger,LedgerEntry(f'{ticket_id}:wallet',ctx.branch_id,f'wallet:{wallet_id}','MAINTENANCE_PAYMENT',debit=pay,reference_id=ticket_id))
             self._put(self.ledger,LedgerEntry(f'{ticket_id}:revenue',ctx.branch_id,'maintenance_revenue','MAINTENANCE',credit=price,reference_id=ticket_id))
             if t.parts_cost:self._put(self.ledger,LedgerEntry(f'{ticket_id}:parts',ctx.branch_id,'maintenance_cost','MAINTENANCE_COGS',debit=t.parts_cost,reference_id=ticket_id))
-            self._audit(ctx,'DELIVER_MAINTENANCE',ticket_id,{'price':str(price),'payment':str(pay)}); self._processed[ctx.command_id]=nt; return nt
+            self._audit(ctx,'DELIVER_MAINTENANCE',ticket_id,{'price':str(price),'payment':str(pay)}); self._processed[ctx.idempotency_key]=nt; return nt
     def reports_full(self, branch_id, start=None, end=None):
         base=self.reports(branch_id,start,end)
         expenses=sum((e.amount for e in self.expenses.all() if e.branch_id==branch_id),D0)
@@ -147,7 +147,7 @@ def install_completion(engine_cls):
     def create_purchase_complete(self,command,supplier_id,items,paid=D0):
         ctx=command.context if hasattr(command,'context') else command
         with self._lock:
-            self._auth(ctx,'purchases.create'); old=self._idem(ctx.command_id)
+            self._auth(ctx,'purchases.create'); old=self._idem(ctx)
             if old:return old
             if not items: raise DomainError('INVALID_INPUT','المشتريات بدون أصناف.',{})
             total=M(sum((Decimal(str(i['quantity']))*Decimal(str(i['unit_cost'])) for i in items),D0)); paid=M(paid)
@@ -182,11 +182,11 @@ def install_completion(engine_cls):
             if total:self._put(self.ledger,LedgerEntry(f'{p.id}:payable',p.branch_id,f'payable:{supplier_id}','PURCHASE_PAYABLE',credit=total,reference_id=p.id))
             if paid:
                 self._put(self.ledger,LedgerEntry(f'{p.id}:wallet',p.branch_id,f'wallet:{wallet_id}','PURCHASE_PAYMENT',credit=paid,reference_id=p.id)); self._put(self.ledger,LedgerEntry(f'{p.id}:payable-paid',p.branch_id,f'payable:{supplier_id}','SUPPLIER_PAYMENT',debit=paid,reference_id=p.id))
-            self._audit(ctx,'CREATE_PURCHASE',p.id,{'total':str(total),'paid':str(paid)}); self._processed[ctx.command_id]=p; return p
+            self._audit(ctx,'CREATE_PURCHASE',p.id,{'total':str(total),'paid':str(paid)}); self._processed[ctx.idempotency_key]=p; return p
     def create_sale_complete(self,command):
         ctx=command.context
         with self._lock:
-            self._auth(ctx,'sales.create'); old=self._idem(ctx.command_id)
+            self._auth(ctx,'sales.create'); old=self._idem(ctx)
             if old:return old
             if not command.items: raise DomainError('INVALID_INPUT','الفاتورة بدون أصناف.',{})
             discount=M(command.discount)
@@ -226,7 +226,7 @@ def install_completion(engine_cls):
             for p in pays:self._put(self.ledger,LedgerEntry(p.id,ctx.branch_id,f'wallet:{p.wallet_id}','SALE_PAYMENT',debit=p.amount,reference_id=s.id))
             receivable=total-paid
             if receivable:self._put(self.ledger,LedgerEntry(f'{s.id}:customer',ctx.branch_id,f'customer:{command.customer_id}','CUSTOMER_RECEIVABLE',debit=receivable,reference_id=s.id))
-            self._audit(ctx,'CREATE_SALE',s.id,{'total':str(total),'discount':str(discount),'paid':str(paid),'credit':str(receivable)}); self._processed[ctx.command_id]=s; return s
+            self._audit(ctx,'CREATE_SALE',s.id,{'total':str(total),'discount':str(discount),'paid':str(paid),'credit':str(receivable)}); self._processed[ctx.idempotency_key]=s; return s
     engine_cls.create_purchase=create_purchase_complete
     engine_cls.create_sale=create_sale_complete
     def transaction(self, fn):
@@ -242,18 +242,18 @@ def install_completion(engine_cls):
     def collect_customer(self,command,customer_id,wallet_id,amount,reference=None):
         ctx=command.context if hasattr(command,'context') else command
         with self._lock:
-            self._auth(ctx,'customers.collect'); old=self._idem(ctx.command_id)
+            self._auth(ctx,'customers.collect'); old=self._idem(ctx)
             if old:return old
             a=M(amount); self._wallet(wallet_id,ctx.branch_id)
             if a<=0:raise DomainError('INVALID_PAYMENT','قيمة التحصيل غير صحيحة.',{})
             bal=self.customer_balance(customer_id,ctx.branch_id)
             if a>bal:raise DomainError('INVALID_PAYMENT','التحصيل أكبر من رصيد العميل.',{})
             obj={'id':ctx.command_id,'customer_id':customer_id,'wallet_id':wallet_id,'amount':a,'reference':reference,'branch_id':ctx.branch_id}
-            self._put(self.catalog,obj); self._put(self.ledger,LedgerEntry(f'{obj["id"]}:customer',ctx.branch_id,f'customer:{customer_id}','CUSTOMER_PAYMENT',credit=a,reference_id=obj['id'])); self._put(self.ledger,LedgerEntry(f'{obj["id"]}:wallet',ctx.branch_id,f'wallet:{wallet_id}','CUSTOMER_PAYMENT',debit=a,reference_id=obj['id'])); self._audit(ctx,'COLLECT_CUSTOMER',obj['id'],{'amount':str(a)}); self._processed[ctx.command_id]=obj; return obj
+            self._put(self.catalog,obj); self._put(self.ledger,LedgerEntry(f'{obj["id"]}:customer',ctx.branch_id,f'customer:{customer_id}','CUSTOMER_PAYMENT',credit=a,reference_id=obj['id'])); self._put(self.ledger,LedgerEntry(f'{obj["id"]}:wallet',ctx.branch_id,f'wallet:{wallet_id}','CUSTOMER_PAYMENT',debit=a,reference_id=obj['id'])); self._audit(ctx,'COLLECT_CUSTOMER',obj['id'],{'amount':str(a)}); self._processed[ctx.idempotency_key]=obj; return obj
     def transfer_customer(self,command,source_wallet,destination_wallet,amount,commission=None,reason=None):
         ctx=command.context if hasattr(command,'context') else command
         with self._lock:
-            self._auth(ctx,'transfer.create'); old=self._idem(ctx.command_id)
+            self._auth(ctx,'transfer.create'); old=self._idem(ctx)
             if old:return old
             a=M(amount)
             if a<=0: raise DomainError('INVALID_INPUT','المبلغ غير صحيح.',{})
@@ -287,7 +287,7 @@ def install_completion(engine_cls):
             if actual:
                 self._put(self.ledger,LedgerEntry(f'{ctx.command_id}:commission',ctx.branch_id,'transfer_commission','TRANSFER_COMMISSION',credit=actual,reference_id=ctx.command_id))
             obj={'id':ctx.command_id,'type':'CUSTOMER_TRANSFER','source_wallet_id':source_wallet,'destination_wallet_id':destination_wallet,'amount':a,'default_commission':default,'commission':actual,'override':commission is not None,'override_reason':reason}
-            self._put(self.transfers,obj); self._audit(ctx,'CREATE_CUSTOMER_TRANSFER',ctx.command_id,{'amount':str(a),'commission':str(actual),'override':commission is not None}); self._processed[ctx.command_id]=obj; return obj
+            self._put(self.transfers,obj); self._audit(ctx,'CREATE_CUSTOMER_TRANSFER',ctx.command_id,{'amount':str(a),'commission':str(actual),'override':commission is not None}); self._processed[ctx.idempotency_key]=obj; return obj
     def report_rows(self,branch_id):
         r=self.reports_full(branch_id); return [{'metric':k,'value':v} for k,v in r.items() if not isinstance(v,(dict,list))]
     engine_cls.transaction=transaction; engine_cls.collect_customer=collect_customer; engine_cls.transfer_customer=transfer_customer; engine_cls.report_rows=report_rows

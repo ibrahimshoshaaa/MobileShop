@@ -267,7 +267,7 @@ class ERPCommandEngine:
                 raise DomainError('NOT_FOUND','العميل المرتبط بالتقسيط غير موجود.',{'customer_id':p.customer_id})
             # Allocate each payment to outstanding principal first, then financing interest.
             prior_paid=sum((x.amount for x in self.installment_payments.all() if x.plan_id==plan_id),D0)
-            principal_paid=min(prior_paid,p.base_amount)
+            principal_paid=min(prior_paid,p.base_financed)
             interest_paid=max(D0,prior_paid-principal_paid)
             principal_part=min(a,max(D0,p.base_amount-principal_paid))
             interest_part=money(a-principal_part)

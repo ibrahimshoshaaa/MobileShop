@@ -211,8 +211,11 @@ def query_endpoint(request: Request, entity: str, branch_id: str = "LOCAL_BRANCH
             # Branch-owned entities are filtered server-side. Global catalog records
             # (products/customers/suppliers) remain tenant-scoped and are not
             # exposed across tenants.
-            if isinstance(row, dict) and "branch_id" in row and row["branch_id"] != branch_id:
-                continue
+            if isinstance(row, dict):
+                if "branch_id" in row and row["branch_id"] != branch_id:
+                    continue
+                if entity in {"suppliers", "employees"} and branch_id not in row.get("branch_ids", ()):
+                    continue
             rows.append(row)
             if len(rows) >= limit:
                 break

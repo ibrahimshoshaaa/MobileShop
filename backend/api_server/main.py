@@ -57,6 +57,8 @@ from backend.api_server.production_auth import verify_request as verify_producti
 from backend.api_server.dev_seed import seed_dev_data
 from backend.functions.api.http import handle
 from backend.functions.services.durable_engine import DurableERPCommandEngine
+from backend.functions.repositories.generic import set_tenant_scope
+from backend.functions.offline.protocol import SyncProtocol
 from shared.contracts.errors import DomainError
 
 if os.getenv("APP_ENV", "development").lower() == "production" and os.getenv("AUTH_PROVIDER", "dev").lower() == "dev":
@@ -81,7 +83,9 @@ if os.getenv("APP_ENV", "development").lower() == "production":
 # _DB_PATH (see durable_engine.py) — survives restarts of this process, but
 # is still one local SQLite file, not a managed remote database.
 engine = DurableERPCommandEngine(_DB_PATH)
-seed_dev_data(engine)
+if os.getenv("APP_ENV", "development").lower() != "production":
+    seed_dev_data(engine)
+sync_protocol = SyncProtocol(_DB_PATH.with_name("sync_protocol.db"))
 
 verify_token = verify_production_token if os.getenv("AUTH_PROVIDER", "dev").lower() == "firebase" else verify_dev_token
 
@@ -90,6 +94,8 @@ _ERROR_STATUS = {
     "FORBIDDEN": 403,
     "BRANCH_ACCESS_DENIED": 403,
     "NOT_FOUND": 404,
+    "TENANT_REQUIRED": 401,
+    "SYNC_BATCH_TOO_LARGE": 400,
 }
 
 
@@ -156,6 +162,90 @@ def list_products_endpoint(request: Request, branch_id: str = "LOCAL_BRANCH"):
         products.append(payload)
     return JSONResponse({"ok": True, "data": products})
 
+
+
+
+_QUERY_REPOS = {
+    "products": "products", "customers": "customers", "suppliers": "suppliers",
+    "sales": "sales", "purchases": "purchases", "expenses": "expenses",
+    "maintenance": "maintenance", "installments": "installments", "wallets": "wallets",
+    "ledger": "ledger", "audit": "audit", "employees": "employees",
+}
+
+@app.get("/query/{entity}")
+def query_endpoint(request: Request, entity: str, branch_id: str = "LOCAL_BRANCH",
+                   limit: int = 100):
+    """Tenant/branch-scoped read API for operational clients."""
+    claims = verify_token(request)
+    if not claims:
+        return JSONResponse({"ok": False, "error": {"code": "UNAUTHORIZED", "message": "التوثيق مطلوب.", "details": {}}}, status_code=401)
+    if entity not in _QUERY_REPOS or branch_id not in claims.get("branch_ids", ()):
+        return JSONResponse({"ok": False, "error": {"code": "BRANCH_ACCESS_DENIED", "message": "لا توجد صلاحية وصول.", "details": {}}}, status_code=403)
+    if limit < 1 or limit > 500:
+        return JSONResponse({"ok": False, "error": {"code": "INVALID_INPUT", "message": "limit يجب أن يكون بين 1 و500.", "details": {}}}, status_code=400)
+    tenant_id = claims.get("tenant_id")
+    if not tenant_id:
+        return JSONResponse({"ok": False, "error": {"code": "TENANT_REQUIRED", "message": "هوية المستأجر مطلوبة.", "details": {}}}, status_code=401)
+    set_tenant_scope(str(tenant_id))
+    repo = getattr(engine, _QUERY_REPOS[entity])
+    rows = []
+    for value in repo.all():
+        row = _json_safe(value)
+        # Branch-owned entities are filtered server-side. Global catalog records
+        # (products/customers/suppliers) remain tenant-scoped and are not
+        # exposed across tenants.
+        if isinstance(row, dict) and "branch_id" in row and row["branch_id"] != branch_id:
+            continue
+        rows.append(row)
+        if len(rows) >= limit:
+            break
+    return JSONResponse({"ok": True, "data": rows})
+
+
+@app.post("/sync/upload")
+async def sync_upload_endpoint(request: Request):
+    claims = verify_token(request)
+    if not claims:
+        return JSONResponse({"ok": False, "error": {"code": "UNAUTHORIZED", "message": "التوثيق مطلوب.", "details": {}}}, status_code=401)
+    body = await request.json()
+    if not isinstance(body, dict) or not isinstance(body.get("commands"), list):
+        return JSONResponse({"ok": False, "error": {"code": "INVALID_INPUT", "message": "commands يجب أن تكون قائمة.", "details": {}}}, status_code=400)
+    tenant_id = claims.get("tenant_id")
+    branch_id = body.get("branch_id")
+    if not tenant_id or branch_id not in claims.get("branch_ids", ()):
+        return JSONResponse({"ok": False, "error": {"code": "BRANCH_ACCESS_DENIED", "message": "لا توجد صلاحية وصول للفرع.", "details": {}}}, status_code=403)
+
+    def execute(envelope):
+        from shared.contracts.commands import CommandContext
+        from backend.functions.api.dispatch import dispatch
+        ctx = CommandContext(
+            envelope["command_id"], claims["uid"], branch_id,
+            frozenset(claims.get("permissions", ())), tenant_id,
+        )
+        command_name = envelope.get("command")
+        payload = envelope.get("payload", {})
+        return dispatch(engine, command_name, ctx, **payload)
+
+    try:
+        result = sync_protocol.upload(body["commands"], tenant_id=tenant_id, branch_id=branch_id, executor=execute)
+        return JSONResponse({"ok": True, "data": result})
+    except DomainError as exc:
+        error = exc.as_dict()
+        return JSONResponse({"ok": False, "error": error}, status_code=_status_for(error.get("code")))
+
+
+@app.get("/sync/changes")
+def sync_changes(request: Request, branch_id: str, cursor: int = 0, limit: int = 100):
+    claims = verify_token(request)
+    if not claims:
+        return JSONResponse({"ok": False, "error": {"code": "UNAUTHORIZED", "message": "التوثيق مطلوب.", "details": {}}}, status_code=401)
+    tenant_id = claims.get("tenant_id")
+    if not tenant_id or branch_id not in claims.get("branch_ids", ()):
+        return JSONResponse({"ok": False, "error": {"code": "BRANCH_ACCESS_DENIED", "message": "لا توجد صلاحية وصول للفرع.", "details": {}}}, status_code=403)
+    try:
+        return JSONResponse({"ok": True, "data": sync_protocol.download(tenant_id=tenant_id, branch_id=branch_id, cursor=cursor, limit=limit)})
+    except ValueError as exc:
+        return JSONResponse({"ok": False, "error": {"code": "INVALID_INPUT", "message": str(exc), "details": {}}}, status_code=400)
 
 @app.post("/command")
 async def command_endpoint(request: Request):

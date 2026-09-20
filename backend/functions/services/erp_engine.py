@@ -265,7 +265,6 @@ class ERPCommandEngine:
             if a<=0 or paid+a>p.total_due:raise DomainError('INVALID_PAYMENT','قيمة التحصيل تتجاوز المتبقي.',{})
             if p.customer_id and self.customers.get(p.customer_id) is None:
                 raise DomainError('NOT_FOUND','العميل المرتبط بالتقسيط غير موجود.',{'customer_id':p.customer_id})
-            remaining_principal=money(p.base_amount-sum((min(x.amount, money(max(D0, p.base_amount-sum((y.amount for y in self.installment_payments.all() if y.plan_id==plan_id),D0)))) for x in []),D0))
             # Allocate each payment to outstanding principal first, then financing interest.
             prior_paid=sum((x.amount for x in self.installment_payments.all() if x.plan_id==plan_id),D0)
             principal_paid=min(prior_paid,p.base_amount)

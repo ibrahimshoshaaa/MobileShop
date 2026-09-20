@@ -91,3 +91,29 @@ def test_partial_return_reversal_is_balanced():
     assert sum((x.debit for x in entries), Decimal("0")) == sum(
         (x.credit for x in entries), Decimal("0")
     )
+
+
+def test_credit_sale_return_reduces_customer_receivable_not_cash():
+    e = seed()
+    sale = e.create_sale(CreateSaleCommand(
+        ctx("sale-credit-return", {"sales.create"}), "c1",
+        ({"product_id": "p1", "quantity": 1, "unit_price": Decimal("100")},), (),
+    ))
+    e.return_sale(ctx("return-credit", {"sales.return"}), sale.id,
+                  [{"sale_item_id": sale.items[0].id, "quantity": Decimal("1")}])
+    assert e.customer_balance("c1", "b1") == Decimal("0")
+    assert e._balance("cash") == Decimal("2000")
+
+
+def test_cash_sale_cannot_refund_from_unrelated_wallet():
+    e = seed()
+    e.wallets.create("digital", Wallet("digital", "b1", "Digital", "DIGITAL"))
+    sale = e.create_sale(CreateSaleCommand(
+        ctx("sale-wallet-return", {"sales.create"}), None,
+        ({"product_id": "p1", "quantity": 1, "unit_price": Decimal("100")},),
+        ({"wallet_id": "cash", "amount": Decimal("100")},),
+    ))
+    with pytest.raises(DomainError) as exc:
+        e.return_sale(ctx("return-wrong-wallet", {"sales.return"}), sale.id,
+                      [{"sale_item_id": sale.items[0].id, "quantity": Decimal("1")}], "digital")
+    assert exc.value.code == "INVALID_RETURN"

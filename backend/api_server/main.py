@@ -53,6 +53,7 @@ from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 
 from backend.api_server.dev_auth import verify_dev_token
+from backend.api_server.production_auth import verify_request as verify_production_token
 from backend.api_server.dev_seed import seed_dev_data
 from backend.functions.api.http import handle
 from backend.functions.services.durable_engine import DurableERPCommandEngine
@@ -75,6 +76,8 @@ _DB_PATH.parent.mkdir(parents=True, exist_ok=True)
 # is still one local SQLite file, not a managed remote database.
 engine = DurableERPCommandEngine(_DB_PATH)
 seed_dev_data(engine)
+
+verify_token = verify_production_token if os.getenv("AUTH_PROVIDER", "dev").lower() == "firebase" else verify_dev_token
 
 _ERROR_STATUS = {
     "UNAUTHORIZED": 401,
@@ -132,7 +135,7 @@ def list_products_endpoint(request: Request, branch_id: str = "LOCAL_BRANCH"):
     why branch_id is a query param here rather than part of the product
     record itself.
     """
-    claims = verify_dev_token(request)
+    claims = verify_token(request)
     if not claims:
         return JSONResponse({"ok": False, "error": {"code": "UNAUTHORIZED", "message": "التوثيق مطلوب.", "details": {}}}, status_code=401)
     if branch_id not in claims["branch_ids"]:
@@ -162,7 +165,7 @@ async def command_endpoint(request: Request):
     # tests/integration/test_security_hardening.py); this endpoint handles
     # both shapes rather than changing it.
     try:
-        result = handle(adapter, engine, verify_dev_token)
+        result = handle(adapter, engine, verify_token)
     except DomainError as exc:
         error = exc.as_dict()
         return JSONResponse({"ok": False, "error": error}, status_code=_status_for(error.get("code")))

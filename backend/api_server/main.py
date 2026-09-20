@@ -57,7 +57,7 @@ from backend.api_server.production_auth import verify_request as verify_producti
 from backend.api_server.dev_seed import seed_dev_data
 from backend.functions.api.http import handle
 from backend.functions.services.durable_engine import DurableERPCommandEngine
-from backend.functions.repositories.generic import set_tenant_scope
+from backend.functions.repositories.generic import set_tenant_scope, reset_tenant_scope
 from backend.functions.offline.protocol import SyncProtocol
 from shared.contracts.errors import DomainError
 
@@ -134,7 +134,7 @@ class _RequestAdapter:
 
 @app.get("/health")
 def health():
-    return {"status": "ok", "mode": "dev", "persistence": "sqlite (survives restarts of this process)"}
+    return {"status": "ok", "mode": os.getenv("APP_ENV", "development").lower(), "persistence": "turso/libsql" if os.getenv("TURSO_DATABASE_URL") else "sqlite"}
 
 
 @app.get("/products")
@@ -186,10 +186,22 @@ def query_endpoint(request: Request, entity: str, branch_id: str = "LOCAL_BRANCH
     tenant_id = claims.get("tenant_id")
     if not tenant_id:
         return JSONResponse({"ok": False, "error": {"code": "TENANT_REQUIRED", "message": "هوية المستأجر مطلوبة.", "details": {}}}, status_code=401)
-    set_tenant_scope(str(tenant_id))
-    repo = getattr(engine, _QUERY_REPOS[entity])
-    rows = []
-    for value in repo.all():
+    permission_by_entity = {
+        "products": "inventory.read", "customers": "customers.read",
+        "suppliers": "suppliers.read", "sales": "sales.read",
+        "purchases": "purchases.read", "expenses": "expenses.read",
+        "maintenance": "maintenance.read", "installments": "installments.read",
+        "wallets": "wallets.read", "ledger": "accounting.read",
+        "audit": "audit.read", "employees": "employees.read",
+    }
+    required_permission = permission_by_entity[entity]
+    if required_permission not in claims.get("permissions", ()):
+        return JSONResponse({"ok": False, "error": {"code": "FORBIDDEN", "message": "لا توجد صلاحية قراءة لهذا المورد.", "details": {"permission": required_permission}}}, status_code=403)
+    token = set_tenant_scope(str(tenant_id))
+    try:
+        repo = getattr(engine, _QUERY_REPOS[entity])
+        rows = []
+        for value in repo.all():
         row = _json_safe(value)
         # Branch-owned entities are filtered server-side. Global catalog records
         # (products/customers/suppliers) remain tenant-scoped and are not
@@ -197,9 +209,11 @@ def query_endpoint(request: Request, entity: str, branch_id: str = "LOCAL_BRANCH
         if isinstance(row, dict) and "branch_id" in row and row["branch_id"] != branch_id:
             continue
         rows.append(row)
-        if len(rows) >= limit:
-            break
-    return JSONResponse({"ok": True, "data": rows})
+            if len(rows) >= limit:
+                break
+        return JSONResponse({"ok": True, "data": rows})
+    finally:
+        reset_tenant_scope(token)
 
 
 @app.post("/sync/upload")

@@ -5,7 +5,7 @@ from decimal import Decimal, ROUND_HALF_UP
 from threading import RLock
 from shared.models.erp import *
 from shared.contracts.errors import DomainError
-from backend.functions.repositories.generic import Repository
+from backend.functions.repositories.generic import Repository, set_tenant_scope
 
 D0=Decimal('0'); CENT=Decimal('0.01')
 def _ctx(command): return getattr(command, "context", command)
@@ -27,12 +27,18 @@ class ERPCommandEngine:
         self.transfers=Repository(); self.returns=Repository(); self.settings=Repository(); self.catalog=Repository(); self._processed={}; self._lock=RLock()
 
     def _auth(self,ctx,perm):
-        if not getattr(ctx,'user_id',None): raise DomainError('UNAUTHORIZED','تسجيل الدخول مطلوب.',{})
-        if perm not in getattr(ctx,'permissions',frozenset()): raise DomainError('FORBIDDEN','لا توجد صلاحية لتنفيذ العملية.',{'permission':perm})
+        if not getattr(ctx,'user_id',None):
+            raise DomainError('UNAUTHORIZED','تسجيل الدخول مطلوب.',{})
+        tenant_id = getattr(ctx, 'tenant_id', None)
+        if not tenant_id:
+            raise DomainError('TENANT_REQUIRED','هوية المستأجر مطلوبة.',{})
+        set_tenant_scope(str(tenant_id))
+        if perm not in getattr(ctx,'permissions',frozenset()):
+            raise DomainError('FORBIDDEN','لا توجد صلاحية لتنفيذ العملية.',{'permission':perm})
     def _idem(self, ctx):
         return self._processed.get(ctx.idempotency_key)
     def _audit(self,ctx,action,ref,details=None):
-        self.audit.create(f'{ctx.idempotency_key}:audit',{'command_id':ctx.command_id,'user_id':ctx.user_id,'branch_id':ctx.branch_id,'action':action,'reference_id':ref,'details':details or {}})
+        self.audit.create(f'{ctx.idempotency_key}:audit',{'command_id':ctx.command_id,'user_id':ctx.user_id,'tenant_id':ctx.tenant_id,'branch_id':ctx.branch_id,'action':action,'reference_id':ref,'details':details or {}})
     def _wallet(self,wid,bid):
         w=self.wallets.get(wid)
         if not w: raise DomainError('NOT_FOUND','المحفظة غير موجودة.',{'wallet_id':wid})

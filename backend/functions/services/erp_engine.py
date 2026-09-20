@@ -62,7 +62,7 @@ class ERPCommandEngine:
             supplier = self.suppliers.get(supplier_id)
             if not supplier:
                 raise DomainError('NOT_FOUND','المورد غير موجود.',{'supplier_id':supplier_id})
-            if hasattr(supplier, 'branch_ids') and _ctx(command).branch_id not in supplier.branch_ids:
+            if getattr(supplier, 'branch_ids', ()) and _ctx(command).branch_id not in supplier.branch_ids:
                 raise DomainError('BRANCH_ACCESS_DENIED','المورد خارج الفروع المسموح بها.',{})
             wallet_id=next((i.get('wallet_id') for i in items if i.get('wallet_id')),None)
             if paid:

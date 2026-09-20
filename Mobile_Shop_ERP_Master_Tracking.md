@@ -1,6 +1,6 @@
 # Mobile Shop ERP — الملف الأم (تتبّع كل الفيتشرز والخطوات)
 
-**آخر تحديث:** 2026-09-20 — تم استكمال دفعة إضافية من ERP financial hardening على `production-hardening/rc3`: موازنة قيود void/return sales، installment principal/interest posting، maintenance parts inventory credit، supplier-payment validation، وday-closing validation. CI للـHEAD الأحدث ما زال بانتظار التشغيل/النتيجة.
+**آخر تحديث:** 2026-09-20 — تم استكمال دفعة ERP مالية إضافية على `production-hardening/rc3`: commission على internal wallet transfer، ضبط refund حسب وسيلة السداد الأصلية، وحماية credit returns، مع تحديث regression matrix. آخر CI منشور للـPR (#205) فشل بـ10 اختبارات على commit أقدم من هذه الإصلاحات؛ الـHEAD الحالي ينتظر CI جديد.
 
 > هذا الملف هو المرجع الوحيد لحالة المشروع: ما تم إنجازه، وما هو قيد التنفيذ، وما يجب إكماله قبل اعتبار النسخة Production-ready.
 
@@ -76,7 +76,7 @@
 
 ## 3. الاختبارات و DevOps
 
-- ✅ الاختبارات الأصلية 101 → **102 اختبار ناجح** بعد إضافة regression/security coverage.
+- 🟡 الاختبارات الأصلية 101؛ آخر CI مكتمل للـPR كان **122 passed / 10 failed** بعد تغييرات مالية، ثم أضيفت إصلاحات الاختبارات والمنطق ويجب انتظار CI جديد.
 - ✅ Python compile check ناجح.
 - ✅ GitHub Actions CI مضاف.
 - ✅ CI يعمل على `main` و `production-hardening/**` و Pull Requests.
@@ -162,9 +162,9 @@
 
 ## 7. الـ ERP correctness والعمليات المالية
 
-- 🟡 sales / returns / refunds accounting matrix: قيود void/return أضيفت مع regression tests؛ يلزم استكمال سيناريوهات mixed-payment/credit returns.
+- 🟡 sales / returns / refunds accounting matrix: قيود void/return + settlement-safe refunds + credit returns أضيفت؛ يلزم استكمال mixed-payment matrix بعد نتيجة CI.
 - 🟡 purchases / supplier payments accounting matrix: تحقق المورد/الفرع/عدم تجاوز الرصيد أضيف؛ يلزم regression matrix كاملة.
-- 🟡 wallet / ledger invariants واختبارات الرصيد: أساسيات موجودة؛ يلزم تغطية أوسع للـtransfer/commission/closing.
+- 🟡 wallet / ledger invariants واختبارات الرصيد: commission والتحقق من رصيد المصدر مضافان؛ يلزم تثبيت نتيجة CI ثم توسيع closing/concurrency.
 - 🟡 installments accounting end-to-end: principal/interest posting أضيف مع regression test؛ يلزم اختبار حالات التقسيط المتعددة/الـrounding.
 - ⬜ IMEI lifecycle كامل.
 - ⬜ branch transfer lifecycle.
@@ -228,8 +228,8 @@
 ## الحالة الحالية
 
 **Branch:** `production-hardening/rc3`  
-**CI:** 🟡 قيد التحقق على آخر HEAD بعد دفعة ERP المالية الأخيرة  
-**Tests:** 🟡 آخر نتيجة موثقة ناجحة كانت Run #175؛ commits المالية الأحدث تنتظر CI جديد  
+**CI:** 🟡 آخر Run #205 فشل (10 اختبارات)؛ إصلاحات ما بعده موجودة والـHEAD الحالي ينتظر CI جديد  
+**Tests:** 🟡 Run #205: 122 passed / 10 failed؛ تم إصلاح أسباب الإخفاقات المعروفة على commits لاحقة، وتبقى النتيجة الجديدة هي الحَكم  
 **Bandit:** 🟢 passed  
 **pip-audit:** 🟢 passed  
 **Production-ready:** ⬜ لا — يلزم staging/Turso operational verification  

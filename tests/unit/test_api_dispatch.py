@@ -111,7 +111,7 @@ def test_http_handle_create_product_end_to_end():
     e = ERPCommandEngine()
 
     def fake_auth(request):
-        return {"uid": "u1", "branch_ids": {"b1"}, "permissions": {"products.edit"}}
+        return {"uid": "u1", "tenant_id": "default", "branch_ids": {"b1"}, "permissions": {"products.edit"}}
 
     request = {
         "commandId": "p1",

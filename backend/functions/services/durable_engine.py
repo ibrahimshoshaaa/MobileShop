@@ -92,26 +92,28 @@ class DurableERPCommandEngine(ERPCommandEngine):
 
     def transaction(self, fn):
         with self._lock:
+            # In remote mode, refresh the authoritative SQL state before
+            # taking the in-memory rollback snapshot. This prevents a failed
+            # command on one worker from restoring stale state from that worker.
+            self._conn.execute("BEGIN")
+            if self._remote:
+                self._reload(clear=True)
+
             before_repos = self._repo_attrs()
             before = {name: dict(repo._data) for name, repo in before_repos.items()}
             before_tenants = {name: dict(repo._tenant_by_id) for name, repo in before_repos.items()}
             processed_before = dict(self._processed)
-            self._conn.execute("BEGIN")
             try:
-                if self._remote:
-                    self._reload(clear=True)
                 result = super().transaction(fn)
                 self._persist_changes(before, processed_before, commit=False)
                 self._conn.commit()
                 return result
             except Exception:
-                try:
-                    self._conn.rollback()
-                finally:
-                    for name, repo in self._repo_attrs().items():
-                        repo._data = dict(before.get(name, {}))
-                        repo._tenant_by_id = dict(before_tenants.get(name, {}))
-                    self._processed = dict(processed_before)
+                self._conn.rollback()
+                for name, repo in self._repo_attrs().items():
+                    repo._data = dict(before.get(name, {}))
+                    repo._tenant_by_id = dict(before_tenants.get(name, {}))
+                self._processed = dict(processed_before)
                 raise
 
     def _persist_changes(self, before: dict, processed_before: dict, commit: bool = True):

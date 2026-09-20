@@ -48,7 +48,7 @@ class DurableERPCommandEngine(ERPCommandEngine):
                     import libsql
                 except ImportError as exc:
                     raise RuntimeError("libsql is required when TURSO_DATABASE_URL is configured") from exc
-                self._conn = libsql.connect(url, auth_token=token)
+                self._conn = libsql.connect(database=url, auth_token=token)
                 self._remote = True
             else:
                 self._conn = sqlite3.connect(str(self._db_path), check_same_thread=False)

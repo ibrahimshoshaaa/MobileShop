@@ -73,7 +73,12 @@ class DurableERPCommandEngine(ERPCommandEngine):
     def _repo_attrs(self) -> dict:
         return {name: value for name, value in self.__dict__.items() if hasattr(value, "_data")}
 
-    def _reload(self) -> None:
+    def _reload(self, clear: bool = False) -> None:
+        if clear:
+            for repo in self._repo_attrs().values():
+                repo._data.clear()
+                repo._tenant_by_id.clear()
+            self._processed.clear()
         cur = self._conn.execute("SELECT repo, record_id, payload, tenant_id FROM records")
         for repo_name, record_id, payload, tenant_id in cur.fetchall():
             value = deserialize_value(json.loads(payload))
@@ -93,6 +98,8 @@ class DurableERPCommandEngine(ERPCommandEngine):
             processed_before = dict(self._processed)
             self._conn.execute("BEGIN")
             try:
+                if self._remote:
+                    self._reload(clear=True)
                 result = super().transaction(fn)
                 self._persist_changes(before, processed_before, commit=False)
                 self._conn.commit()

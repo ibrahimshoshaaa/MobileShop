@@ -3,10 +3,9 @@ from __future__ import annotations
 import firebase_admin
 from firebase_admin import auth
 
-if not firebase_admin._apps:
-    firebase_admin.initialize_app()
-
 def verify_request(request):
+    if not firebase_admin._apps:
+        firebase_admin.initialize_app()
     headers = getattr(request, "headers", None)
     raw = headers.get("authorization") if headers is not None else None
     if not raw or not raw.lower().startswith("bearer "):

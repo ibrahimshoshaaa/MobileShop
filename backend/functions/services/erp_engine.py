@@ -32,7 +32,7 @@ class ERPCommandEngine:
     def _idem(self, ctx):
         return self._processed.get(ctx.idempotency_key)
     def _audit(self,ctx,action,ref,details=None):
-        self.audit.create(f'{ctx.command_id}:audit',{'command_id':ctx.command_id,'user_id':ctx.user_id,'branch_id':ctx.branch_id,'action':action,'reference_id':ref,'details':details or {}})
+        self.audit.create(f'{ctx.idempotency_key}:audit',{'command_id':ctx.command_id,'user_id':ctx.user_id,'branch_id':ctx.branch_id,'action':action,'reference_id':ref,'details':details or {}})
     def _wallet(self,wid,bid):
         w=self.wallets.get(wid)
         if not w: raise DomainError('NOT_FOUND','المحفظة غير موجودة.',{'wallet_id':wid})

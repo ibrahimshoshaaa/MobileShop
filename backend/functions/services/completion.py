@@ -4,6 +4,7 @@ from datetime import date, timedelta
 from decimal import Decimal, ROUND_HALF_UP
 from shared.models.erp import *
 from shared.contracts.errors import DomainError
+from backend.functions.repositories.generic import set_tenant_scope, reset_tenant_scope
 
 D0=Decimal('0'); CENT=Decimal('0.01')
 def M(v): return Decimal(str(v)).quantize(CENT, rounding=ROUND_HALF_UP)
@@ -236,15 +237,23 @@ def install_completion(engine_cls):
     engine_cls.create_purchase=create_purchase_complete
     engine_cls.create_sale=create_sale_complete
     def transaction(self, fn):
-        """Atomic in-memory transaction boundary; production adapter maps this to Firestore transaction."""
+        """Atomic in-memory transaction with request-scoped tenant cleanup."""
         with self._lock:
             repos=[v for v in self.__dict__.values() if hasattr(v,'_data')]
-            snapshots=[dict(r._data) for r in repos]; processed=dict(self._processed)
-            try:return fn()
+            snapshots=[dict(r._data) for r in repos]
+            tenant_snapshots=[dict(r._tenant_by_id) for r in repos]
+            processed=dict(self._processed)
+            scope_token=set_tenant_scope(None)
+            try:
+                return fn()
             except Exception:
-                for r,snap in zip(repos,snapshots): r._data=snap
+                for r,snap,tenant_snap in zip(repos,snapshots,tenant_snapshots):
+                    r._data=snap
+                    r._tenant_by_id=tenant_snap
                 self._processed=processed
                 raise
+            finally:
+                reset_tenant_scope(scope_token)
     def collect_customer(self,command,customer_id,wallet_id,amount,reference=None):
         ctx=command.context if hasattr(command,'context') else command
         with self._lock:

@@ -46,3 +46,19 @@ def test_customer_transfer_digital_to_cash_moves_in_correct_direction():
     assert x['commission']==1
     assert e._balance('dig')==1100
     assert e._balance('cash')==100
+
+
+def test_idempotency_is_scoped_to_tenant():
+    from shared.contracts.commands import CommandContext
+    from shared.models.erp import Product
+
+    e = ERPCommandEngine()
+    p1 = Product("p-tenant-a", "A", "SKU-A", "ACCESSORY")
+    p2 = Product("p-tenant-b", "B", "SKU-B", "ACCESSORY")
+
+    e.create_product(CommandContext("same-command", "u1", "b1", frozenset({"products.edit"}), "tenant-a"), p1)
+    result = e.create_product(CommandContext("same-command", "u2", "b1", frozenset({"products.edit"}), "tenant-b"), p2)
+
+    assert result.id == "p-tenant-b"
+    assert e.products.get("p-tenant-a") is p1
+    assert e.products.get("p-tenant-b") is p2

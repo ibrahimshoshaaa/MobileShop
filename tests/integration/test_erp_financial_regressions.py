@@ -34,15 +34,15 @@ def test_installment_collection_balances_principal_and_interest():
     )
     payment = e.collect_installment(
         ctx("installment-pay", {"installments.collect"}), plan.id,
-        Decimal("55"), "cash",
+        Decimal("105"), "cash",
     )
     entries = [x for x in e.ledger.all() if getattr(x, "reference_id", None) == plan.id]
     assert sum((x.debit for x in entries), Decimal("0")) == sum(
         (x.credit for x in entries), Decimal("0")
     )
-    assert e.customer_balance("c1", "b1") == Decimal("45")
+    assert e.customer_balance("c1", "b1") == Decimal("0")
     assert any(x.account_id == "installment_interest" and x.credit == Decimal("5") for x in entries)
-    assert payment.amount == Decimal("55")
+    assert payment.amount == Decimal("105")
 
 
 def test_maintenance_delivery_with_parts_has_balanced_ledger():

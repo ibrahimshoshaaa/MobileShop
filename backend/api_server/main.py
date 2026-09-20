@@ -202,13 +202,13 @@ def query_endpoint(request: Request, entity: str, branch_id: str = "LOCAL_BRANCH
         repo = getattr(engine, _QUERY_REPOS[entity])
         rows = []
         for value in repo.all():
-        row = _json_safe(value)
-        # Branch-owned entities are filtered server-side. Global catalog records
-        # (products/customers/suppliers) remain tenant-scoped and are not
-        # exposed across tenants.
-        if isinstance(row, dict) and "branch_id" in row and row["branch_id"] != branch_id:
-            continue
-        rows.append(row)
+            row = _json_safe(value)
+            # Branch-owned entities are filtered server-side. Global catalog records
+            # (products/customers/suppliers) remain tenant-scoped and are not
+            # exposed across tenants.
+            if isinstance(row, dict) and "branch_id" in row and row["branch_id"] != branch_id:
+                continue
+            rows.append(row)
             if len(rows) >= limit:
                 break
         return JSONResponse({"ok": True, "data": rows})

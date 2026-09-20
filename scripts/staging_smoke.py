@@ -35,7 +35,16 @@ def main() -> int:
     status, products = request(f"{base}/products?branch_id={branch}", token)
     if status != 200 or products.get("ok") is not True:
         raise RuntimeError(f"products query failed: {status} {products}")
-    print("staging smoke: PASS")
+    status, query = request(f"{base}/query/products?branch_id={branch}&limit=5", token)
+    if status != 200 or query.get("ok") is not True:
+        raise RuntimeError(f"query endpoint failed: {status} {query}")
+    status, changes = request(f"{base}/sync/changes?branch_id={branch}&cursor=0&limit=5", token)
+    if status != 200 or changes.get("ok") is not True:
+        raise RuntimeError(f"sync changes failed: {status} {changes}")
+    status, upload = request(f"{base}/sync/upload", token, "POST", {"branch_id": branch, "commands": []})
+    if status != 200 or upload.get("ok") is not True:
+        raise RuntimeError(f"sync upload failed: {status} {upload}")
+    print("staging smoke: PASS (health/products/query/sync)")
     return 0
 
 

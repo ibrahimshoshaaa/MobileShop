@@ -20,7 +20,7 @@ def base_engine():
     e.products.create("p1", Product("p1", "Phone", "SKU1", "PHONE_NEW", default_cost=Decimal("100")))
     e.wallets.create("cash", Wallet("cash", "b1", "Cash", "CASH"))
     e.wallets.create("digital", Wallet("digital", "b1", "Digital", "DIGITAL"))
-    e.ledger.create("opening", LedgerEntry("opening", "b1", "wallet:cash", "OPENING", debit=Decimal("2000")))
+    e.ledger.create("opening", LedgerEntry("opening", "b1", "wallet:cash", "OPENING", debit=Decimal("6000")))
     return e
 
 

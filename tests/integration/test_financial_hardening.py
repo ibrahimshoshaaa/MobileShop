@@ -32,7 +32,9 @@ def test_wallet_transfer_commission_is_fully_balanced_and_idempotent():
     assert e._balance("cash") == Decimal("1899.00")
     assert e._balance("digital") == Decimal("100.00")
     rows = [x for x in e.ledger.all() if x.reference_id == "wt-1"]
-    assert sum((x.debit for x in rows), Decimal("0")) == sum((x.credit for x in rows), Decimal("0"))
+    assert sum((x.debit for x in rows), Decimal("0")) == Decimal("100.00")
+    assert sum((x.credit for x in rows), Decimal("0")) == Decimal("102.00")
+    assert any(x.account_id == "transfer_commission" and x.credit == Decimal("1.00") for x in rows)
 
 
 def test_salary_cannot_be_paid_twice_and_is_idempotent_at_calculation():

@@ -36,13 +36,14 @@ class Repository:
         value = self._data.get(k)
         return value if value is not None and self._visible(k) else None
 
-    def create(self, k, v):
+    def create(self, k, v, tenant_id: str | None = None):
         with self._lock:
             if k in self._data:
                 raise ValueError("ALREADY_EXISTS")
-            scope = current_tenant()
+            if tenant_id is not None and (not isinstance(tenant_id, str) or not tenant_id.strip()):
+                raise ValueError("tenant_id must be a non-empty string")
             self._data[k] = v
-            self._tenant_by_id[k] = scope if scope is not None else "legacy"
+            self._tenant_by_id[k] = tenant_id if tenant_id is not None else "legacy"
             return v
 
     def update(self, k, v):

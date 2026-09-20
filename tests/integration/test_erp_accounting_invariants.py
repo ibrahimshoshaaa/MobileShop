@@ -33,9 +33,6 @@ def test_sale_ledger_entries_are_balanced():
     )
     e.create_sale(command)
     entries = e.ledger.all()
-    assert sum((x.debit for x in entries), Decimal("0")) == sum(
-        (x.credit for x in entries), Decimal("0")
-    ) if False else True
     sale_entries = [x for x in entries if "sale-1" in str(getattr(x, "reference_id", "")) or "sale-1" in str(getattr(x, "id", ""))]
     assert sale_entries
     assert sum((x.debit for x in sale_entries), Decimal("0")) == sum(

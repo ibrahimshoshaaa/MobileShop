@@ -1,6 +1,6 @@
 # Mobile Shop ERP — الملف الأم (تتبّع كل الفيتشرز والخطوات)
 
-**آخر تحديث:** 2026-09-20 — تم تحديث المسار بعد اكتشاف وإصلاح اختبارات ERP regression؛ آخر تشغيل للـHEAD الحالي ما زال قيد التنفيذ على `production-hardening/rc3`: tenant isolation، production auth boundary، Turso/libSQL path، secured query/sync API، offline sync protocol، concurrency coverage، backup/restore drill، وstaging smoke automation.
+**آخر تحديث:** 2026-09-20 — تم استكمال دفعة إضافية من ERP financial hardening على `production-hardening/rc3`: موازنة قيود void/return sales، installment principal/interest posting، maintenance parts inventory credit، supplier-payment validation، وday-closing validation. CI للـHEAD الأحدث ما زال بانتظار التشغيل/النتيجة.
 
 > هذا الملف هو المرجع الوحيد لحالة المشروع: ما تم إنجازه، وما هو قيد التنفيذ، وما يجب إكماله قبل اعتبار النسخة Production-ready.
 
@@ -162,10 +162,10 @@
 
 ## 7. الـ ERP correctness والعمليات المالية
 
-- ⬜ sales / returns / refunds accounting matrix كاملة.
-- ⬜ purchases / supplier payments accounting matrix.
-- ⬜ wallet / ledger invariants واختبارات الرصيد.
-- ⬜ installments accounting end-to-end.
+- 🟡 sales / returns / refunds accounting matrix: قيود void/return أضيفت مع regression tests؛ يلزم استكمال سيناريوهات mixed-payment/credit returns.
+- 🟡 purchases / supplier payments accounting matrix: تحقق المورد/الفرع/عدم تجاوز الرصيد أضيف؛ يلزم regression matrix كاملة.
+- 🟡 wallet / ledger invariants واختبارات الرصيد: أساسيات موجودة؛ يلزم تغطية أوسع للـtransfer/commission/closing.
+- 🟡 installments accounting end-to-end: principal/interest posting أضيف مع regression test؛ يلزم اختبار حالات التقسيط المتعددة/الـrounding.
 - ⬜ IMEI lifecycle كامل.
 - ⬜ branch transfer lifecycle.
 - ⬜ day closing / reopening rules.
@@ -228,8 +228,8 @@
 ## الحالة الحالية
 
 **Branch:** `production-hardening/rc3`  
-**CI:** 🟡 قيد التحقق على آخر HEAD (الإخفاقات السابقة كانت من اختبارات ERP الجديدة)  
-**Tests:** 🟡 آخر run مكتمل قبل الإصلاحات: 118 passed / 5 failed؛ آخر HEAD قيد الاختبار  
+**CI:** 🟡 قيد التحقق على آخر HEAD بعد دفعة ERP المالية الأخيرة  
+**Tests:** 🟡 آخر نتيجة موثقة ناجحة كانت Run #175؛ commits المالية الأحدث تنتظر CI جديد  
 **Bandit:** 🟢 passed  
 **pip-audit:** 🟢 passed  
 **Production-ready:** ⬜ لا — يلزم staging/Turso operational verification  

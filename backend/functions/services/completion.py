@@ -132,7 +132,9 @@ def install_completion(engine_cls):
             nt=replace(t,status='DELIVERED',final_cost=price,payment=pay); self.maintenance.update(t.id,nt)
             if pay:self._put(self.ledger,LedgerEntry(f'{ticket_id}:wallet',ctx.branch_id,f'wallet:{wallet_id}','MAINTENANCE_PAYMENT',debit=pay,reference_id=ticket_id))
             self._put(self.ledger,LedgerEntry(f'{ticket_id}:revenue',ctx.branch_id,'maintenance_revenue','MAINTENANCE',credit=price,reference_id=ticket_id))
-            if t.parts_cost:\n                self._put(self.ledger,LedgerEntry(f'{ticket_id}:parts',ctx.branch_id,'maintenance_cost','MAINTENANCE_COGS',debit=t.parts_cost,reference_id=ticket_id))\n                self._put(self.ledger,LedgerEntry(f'{ticket_id}:inventory',ctx.branch_id,'inventory','MAINTENANCE_USE',credit=t.parts_cost,reference_id=ticket_id))
+            if t.parts_cost:
+                self._put(self.ledger,LedgerEntry(f'{ticket_id}:parts',ctx.branch_id,'maintenance_cost','MAINTENANCE_COGS',debit=t.parts_cost,reference_id=ticket_id))
+                self._put(self.ledger,LedgerEntry(f'{ticket_id}:inventory',ctx.branch_id,'inventory','MAINTENANCE_USE',credit=t.parts_cost,reference_id=ticket_id))
             self._audit(ctx,'DELIVER_MAINTENANCE',ticket_id,{'price':str(price),'payment':str(pay)}); self._processed[ctx.idempotency_key]=nt; return nt
     def reports_full(self, branch_id, start=None, end=None):
         base=self.reports(branch_id,start,end)

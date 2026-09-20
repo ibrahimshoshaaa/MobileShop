@@ -45,7 +45,8 @@ def test_wallet_transfer_preserves_total_wallet_balance():
     before = e._balance("cash") + e._balance("digital")
     e.transfer_between_wallets(ctx("transfer-1", {"wallet.transfer"}), "cash", "digital", Decimal("100"))
     after = e._balance("cash") + e._balance("digital")
-    assert after == before
+    assert after == before - Decimal("1.00")
+    assert any(x.account_id == "transfer_commission" and x.credit == Decimal("1.00") for x in e.ledger.all())
 
 
 def test_expense_decreases_wallet_and_balances_ledger():

@@ -263,7 +263,23 @@ class ERPCommandEngine:
             a=money(amount); self._wallet(wallet_id,_ctx(command).branch_id)
             paid=sum((x.amount for x in self.installment_payments.all() if x.plan_id==plan_id),D0)
             if a<=0 or paid+a>p.total_due:raise DomainError('INVALID_PAYMENT','قيمة التحصيل تتجاوز المتبقي.',{})
-            ip=InstallmentPayment(_ctx(command).command_id,plan_id,a,wallet_id); self._put(self.installment_payments,ip); self._put(self.ledger,LedgerEntry(f'{ip.id}:wallet',_ctx(command).branch_id,f'wallet:{wallet_id}','INSTALLMENT_PAYMENT',debit=a,reference_id=plan_id)); self._audit(_ctx(command),'COLLECT_INSTALLMENT',plan_id,{'amount':str(a)}); self._processed[_ctx(command).idempotency_key]=ip; return ip
+            if p.customer_id and self.customers.get(p.customer_id) is None:
+                raise DomainError('NOT_FOUND','العميل المرتبط بالتقسيط غير موجود.',{'customer_id':p.customer_id})
+            remaining_principal=money(p.base_amount-sum((min(x.amount, money(max(D0, p.base_amount-sum((y.amount for y in self.installment_payments.all() if y.plan_id==plan_id),D0)))) for x in []),D0))
+            # Allocate each payment to outstanding principal first, then financing interest.
+            prior_paid=sum((x.amount for x in self.installment_payments.all() if x.plan_id==plan_id),D0)
+            principal_paid=min(prior_paid,p.base_amount)
+            interest_paid=max(D0,prior_paid-principal_paid)
+            principal_part=min(a,max(D0,p.base_amount-principal_paid))
+            interest_part=money(a-principal_part)
+            ip=InstallmentPayment(_ctx(command).command_id,plan_id,a,wallet_id)
+            self._put(self.installment_payments,ip)
+            self._put(self.ledger,LedgerEntry(f'{ip.id}:wallet',_ctx(command).branch_id,f'wallet:{wallet_id}','INSTALLMENT_PAYMENT',debit=a,reference_id=plan_id))
+            if p.customer_id and principal_part:
+                self._put(self.ledger,LedgerEntry(f'{ip.id}:principal',_ctx(command).branch_id,f'customer:{p.customer_id}','INSTALLMENT_PRINCIPAL',credit=principal_part,reference_id=plan_id))
+            if interest_part:
+                self._put(self.ledger,LedgerEntry(f'{ip.id}:interest',_ctx(command).branch_id,'installment_interest','INSTALLMENT_INTEREST',credit=interest_part,reference_id=plan_id))
+            self._audit(_ctx(command),'COLLECT_INSTALLMENT',plan_id,{'amount':str(a),'principal':str(principal_part),'interest':str(interest_part)}); self._processed[_ctx(command).idempotency_key]=ip; return ip
 
     def installment_remaining(self,plan_id):
         p=self.installments.get(plan_id)

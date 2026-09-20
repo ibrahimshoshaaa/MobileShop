@@ -14,7 +14,7 @@ def test_cross_tenant_customer_and_supplier_are_invisible():
     customer = Customer("c1", "Tenant A customer")
     supplier = Supplier("s1", "Tenant A supplier", branch_ids=("b1",))
     engine.create_customer(ctx_a, customer)
-    engine.create_supplier(ctx_a, supplier)
+    engine.create_supplier(CommandContext("cs", "ua", "b1", frozenset({"suppliers.edit"}), "tenant-a"), supplier)
     assert engine.customers.get("c1") is customer
     assert engine.suppliers.get("s1") is supplier
     engine.create_customer(ctx_b, Customer("c2", "Tenant B customer"))

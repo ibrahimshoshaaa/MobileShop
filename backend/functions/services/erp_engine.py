@@ -5,7 +5,7 @@ from decimal import Decimal, ROUND_HALF_UP
 from threading import RLock
 from shared.models.erp import *
 from shared.contracts.errors import DomainError
-from backend.functions.repositories.generic import Repository, set_tenant_scope
+from backend.functions.repositories.generic import Repository, set_tenant_scope, reset_tenant_scope
 
 D0=Decimal('0'); CENT=Decimal('0.01')
 def _ctx(command): return getattr(command, "context", command)

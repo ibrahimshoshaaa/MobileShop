@@ -33,7 +33,7 @@ class SyncProtocol:
                     import libsql
                 except ImportError as exc:
                     raise RuntimeError("libsql is required for remote sync storage") from exc
-                self.db = libsql.connect(url, auth_token=token)
+                self.db = libsql.connect(database=url, auth_token=token)
             else:
                 self.db = sqlite3.connect(str(path), check_same_thread=False)
         self.db.execute("PRAGMA busy_timeout=5000")

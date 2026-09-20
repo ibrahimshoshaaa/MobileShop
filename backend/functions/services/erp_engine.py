@@ -134,9 +134,13 @@ class ERPCommandEngine:
             for i in items:
                 if i.product_unit_id:self.units.update(i.product_unit_id,replace(self.units.get(i.product_unit_id),status='SOLD'))
                 self._put(self.stock,StockMovement(f'{s.id}:out:{i.id}',s.branch_id,i.product_id,-i.quantity,'SALE',s.id,i.product_unit_id,i.cost_snapshot))
+            # Sale accounting is double-entry: revenue/payment and COGS/inventory
+            # are separate balanced legs of the same transaction.
             self._put(self.ledger,LedgerEntry(f'{s.id}:revenue',s.branch_id,'sales_revenue','SALE',credit=total,reference_id=s.id))
-            self._put(self.ledger,LedgerEntry(f'{s.id}:cogs',s.branch_id,'cost_of_goods_sold','SALE',debit=cost_total,reference_id=s.id))
             for p in pays:self._put(self.ledger,LedgerEntry(p.id,s.branch_id,f'wallet:{p.wallet_id}','SALE_PAYMENT',debit=p.amount,reference_id=s.id))
+            if cost_total:
+                self._put(self.ledger,LedgerEntry(f'{s.id}:cogs',s.branch_id,'cost_of_goods_sold','SALE',debit=cost_total,reference_id=s.id))
+                self._put(self.ledger,LedgerEntry(f'{s.id}:inventory',s.branch_id,'inventory','SALE',credit=cost_total,reference_id=s.id))
             self._audit(_ctx(command),'CREATE_SALE',s.id,{'total':str(total),'discount':str(discount)}); self._processed[_ctx(command).idempotency_key]=s; return s
 
     def void_sale(self,command,sale_id,reason=''):

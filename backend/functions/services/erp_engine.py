@@ -59,9 +59,11 @@ class ERPCommandEngine:
             if not items: raise DomainError('INVALID_INPUT','المشتريات بدون أصناف.',{})
             total=sum((dec(i['quantity'])*dec(i['unit_cost']) for i in items),D0); paid=money(paid)
             if paid<0 or paid>total: raise DomainError('INVALID_PAYMENT','قيمة السداد غير صحيحة.',{})
-            if not self.suppliers.get(supplier_id):
-                # keep backwards-compatible demos: supplier may be represented by external id
-                pass
+            supplier = self.suppliers.get(supplier_id)
+            if not supplier:
+                raise DomainError('NOT_FOUND','المورد غير موجود.',{'supplier_id':supplier_id})
+            if hasattr(supplier, 'branch_ids') and _ctx(command).branch_id not in supplier.branch_ids:
+                raise DomainError('BRANCH_ACCESS_DENIED','المورد خارج الفروع المسموح بها.',{})
             wallet_id=next((i.get('wallet_id') for i in items if i.get('wallet_id')),None)
             if paid:
                 if not wallet_id: raise DomainError('INVALID_PAYMENT','يجب تحديد محفظة للسداد.',{})
@@ -102,6 +104,8 @@ class ERPCommandEngine:
             self._auth(_ctx(command),'sales.create'); old=self._idem(_ctx(command))
             if old:return old
             if not command.items: raise DomainError('INVALID_INPUT','الفاتورة بدون أصناف.',{})
+            if command.customer_id is not None and not self.customers.get(command.customer_id):
+                raise DomainError('NOT_FOUND','العميل غير موجود.',{'customer_id':command.customer_id})
             discount=money(command.discount); items=[]; subtotal=D0; cost_total=D0
             for n,r in enumerate(command.items):
                 q=dec(r.get('quantity',1)); price=money(r['unit_price'])
@@ -267,6 +271,9 @@ class ERPCommandEngine:
         with self._lock:
             self._auth(_ctx(command),'maintenance.create'); old=self._idem(_ctx(command))
             if old:return old
+            customer = self.customers.get(customer_id)
+            if not customer:
+                raise DomainError('NOT_FOUND','العميل غير موجود.',{'customer_id':customer_id})
             t=MaintenanceTicket(_ctx(command).command_id,_ctx(command).branch_id,customer_id,device,imei,problem); self._put(self.maintenance,t); self._audit(_ctx(command),'CREATE_MAINTENANCE',t.id); self._processed[t.id]=t; return t
     def transition_maintenance(self,command,ticket_id,new_status):
         with self._lock:

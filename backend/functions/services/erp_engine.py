@@ -187,19 +187,31 @@ class ERPCommandEngine:
                 q=dec(r.get('quantity',match.quantity));
                 if q<=0 or q>match.quantity:raise DomainError('INVALID_RETURN','كمية المرتجع غير صحيحة.',{})
                 refund += q*match.unit_price; returned.append((match,q))
-            if refund_wallet_id:
-                self._wallet(refund_wallet_id,_ctx(command).branch_id)
-                if self._balance(refund_wallet_id) < money(refund):
-                    raise DomainError('INSUFFICIENT_WALLET_BALANCE','رصيد محفظة رد المبلغ غير كافٍ.',{})
-            # Prevent returning more than the remaining quantity from previous returns.
+            # Refunds must follow the original settlement method. A credit sale
+            # cannot be turned into a cash payout, and a wallet cannot refund more
+            # than it originally received for this sale.
             already = {}
+            prior_wallet_refunds = D0
             for rr in self.returns.all():
                 if isinstance(rr,dict) and rr.get('sale_id')==sale_id:
-                    for item_id, qty in rr.get('items',()): already[item_id]=already.get(item_id,D0)+dec(qty)
+                    for item_id, qty in rr.get('items',()):
+                        already[item_id]=already.get(item_id,D0)+dec(qty)
+                    if refund_wallet_id and rr.get('refund_wallet_id')==refund_wallet_id:
+                        prior_wallet_refunds += dec(rr.get('amount',D0))
             for match,q in returned:
                 if already.get(match.id,D0)+q > match.quantity:
                     raise DomainError('INVALID_RETURN','تم تجاوز الكمية المتاحة للإرجاع.',{})
-            rid=_ctx(command).command_id; self._put(self.returns,{'id':rid,'sale_id':sale_id,'amount':money(refund),'items':tuple((i.id,q) for i,q in returned)})
+            if refund_wallet_id:
+                self._wallet(refund_wallet_id,_ctx(command).branch_id)
+                original_paid=sum((p.amount for p in s.payments if p.wallet_id==refund_wallet_id),D0)
+                refundable=money(original_paid-prior_wallet_refunds)
+                if money(refund)>refundable:
+                    raise DomainError('INVALID_RETURN','قيمة المرتجع أكبر من المبلغ المدفوع من هذه المحفظة.',{})
+                if self._balance(refund_wallet_id) < money(refund):
+                    raise DomainError('INSUFFICIENT_WALLET_BALANCE','رصيد محفظة رد المبلغ غير كافٍ.',{})
+            elif not s.customer_id:
+                raise DomainError('INVALID_RETURN','المرتجع يحتاج محفظة رد أو عميل للفواتير الآجلة.',{})
+            rid=_ctx(command).command_id; self._put(self.returns,{'id':rid,'sale_id':sale_id,'amount':money(refund),'items':tuple((i.id,q) for i,q in returned),'refund_wallet_id':refund_wallet_id})
             for i,q in returned:
                 self._put(self.stock,StockMovement(f'{rid}:{i.id}',s.branch_id,i.product_id,q,'RETURN',sale_id,i.product_unit_id,i.cost_snapshot))
                 if i.product_unit_id:self.units.update(i.product_unit_id,replace(self.units.get(i.product_unit_id),status='AVAILABLE'))

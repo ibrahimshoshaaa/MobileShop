@@ -59,3 +59,35 @@ def test_maintenance_delivery_with_parts_has_balanced_ledger():
     assert sum((x.debit for x in entries), Decimal("0")) == sum(
         (x.credit for x in entries), Decimal("0")
     )
+
+
+def test_void_sale_reversal_is_balanced():
+    e = seed()
+    sale = e.create_sale(CreateSaleCommand(
+        ctx("sale-void-balanced", {"sales.create"}), None,
+        ({"product_id": "p1", "quantity": 1, "unit_price": Decimal("250")},),
+        ({"wallet_id": "cash", "amount": Decimal("250")},),
+    ))
+    e.void_sale(ctx("void-balanced", {"sales.void"}), sale.id)
+    entries = [x for x in e.ledger.all() if getattr(x, "reference_id", None) == sale.id]
+    assert sum((x.debit for x in entries), Decimal("0")) == sum(
+        (x.credit for x in entries), Decimal("0")
+    )
+
+
+def test_partial_return_reversal_is_balanced():
+    e = seed()
+    sale = e.create_sale(CreateSaleCommand(
+        ctx("sale-return-balanced", {"sales.create"}), None,
+        ({"product_id": "p1", "quantity": 2, "unit_price": Decimal("250")},),
+        ({"wallet_id": "cash", "amount": Decimal("500")},),
+    ))
+    e.return_sale(
+        ctx("return-balanced", {"sales.return"}), sale.id,
+        [{"sale_item_id": sale.items[0].id, "quantity": Decimal("1")}],
+        "cash",
+    )
+    entries = [x for x in e.ledger.all() if getattr(x, "reference_id", None) == sale.id]
+    assert sum((x.debit for x in entries), Decimal("0")) == sum(
+        (x.credit for x in entries), Decimal("0")
+    )

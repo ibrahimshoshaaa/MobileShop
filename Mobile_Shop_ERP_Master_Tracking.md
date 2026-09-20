@@ -1,6 +1,6 @@
 # Mobile Shop ERP — الملف الأم (تتبّع كل الفيتشرز والخطوات)
 
-**آخر تحديث:** 2026-09-20 — تم تطبيق حزمة Production Hardening على فرع `production-hardening/rc3`، والـ CI أخضر.
+**آخر تحديث:** 2026-09-20 — تم تنفيذ حزمة hardening التالية على `production-hardening/rc3`: tenant isolation، production auth boundary، Turso/libSQL path، secured query/sync API، offline sync protocol، concurrency coverage، backup/restore drill، وstaging smoke automation.
 
 > هذا الملف هو المرجع الوحيد لحالة المشروع: ما تم إنجازه، وما هو قيد التنفيذ، وما يجب إكماله قبل اعتبار النسخة Production-ready.
 
@@ -28,20 +28,21 @@
 - ✅ Firebase production verification يستخدم revocation checking.
 - ✅ اختيار صريح بين `AUTH_PROVIDER=dev` و `AUTH_PROVIDER=firebase`.
 - ✅ منع تشغيل `AUTH_PROVIDER=dev` عندما `APP_ENV=production`.
-- ⬜ إلزام production claims بوجود `tenant_id` بدل fallback الافتراضي.
-- ⬜ استكمال server-side authorization للـ branch membership والصلاحيات لكل أمر.
-- ⬜ منع أي request body من override للـ tenant/user/branch/permissions.
-- ⬜ اختبارات انتهاء/إلغاء التوكنات والصلاحيات لكل command.
+- ✅ production claims تتطلب `tenant_id` ولا يوجد fallback في HTTP boundary.
+- ✅ server-side branch membership + command permissions مطبقة عند حدود الأوامر.
+- ✅ request body ممنوع من override للـ tenant/user/permissions.
+- ✅ Firebase verification يستخدم revocation checking؛ اختبارات boundary أضيفت، وتبقى اختبارات staging بتوكنات حقيقية.
 
 ### التحقق من ملكية البيانات
 - ✅ التحقق من وجود Supplier قبل استخدامه في التدفقات المناسبة.
 - ✅ التحقق من صلاحية الوصول للفرع الخاص بالـ Supplier.
 - ✅ التحقق من وجود Customer في التدفقات التي تعتمد عليه.
 - ✅ Regression test لعزل Idempotency بين Tenant مختلف.
-- ⬜ إضافة Tenant ownership إلى كل الكيانات/السجلات المملوكة للـ Tenant.
-- ⬜ فرض tenant filtering داخل repositories وطبقات القراءة/الكتابة.
-- ⬜ اختبارات cross-tenant سلبية لكل الكيانات الحساسة.
-- ⬜ مراجعة شاملة لكل foreign-key/reference ownership.
+- ✅ إضافة `tenant_id` إلى نماذج foundation وERP.
+- ✅ repository reads/writes أصبحت tenant-scoped عند وجود auth scope.
+- ✅ cross-tenant tests للعملاء/الموردين/المنتجات + sync.
+- ✅ الاستعلامات HTTP أصبحت tenant/branch-scoped.
+- ⬜ مراجعة ERP-specific لكل foreign-key/reference تحتاج إكمالاً في P1/accounting.
 
 ### خادم API المحلي للتطوير
 - ✅ FastAPI حقيقي شغّال (`/health`, `/command`).
@@ -63,11 +64,13 @@
 - ✅ عند فشل الحفظ يتم rollback للـ DB واسترجاع حالة الذاكرة.
 - ✅ حذف السجلات يتم حفظه في persistence.
 - ✅ حذف سجلات processed/idempotency يتم حفظه.
-- ⬜ **Turso/libSQL production adapter** كقاعدة مركزية مُدارة.
-- ⬜ جعل قاعدة SQL المركزية هي authoritative source of truth.
-- ⬜ اختبار فشل الشبكة/DB أثناء transaction في بيئة فعلية.
-- ⬜ backup/restore drill مُختبر.
-- ⬜ multi-server coordination / concurrency على قاعدة مركزية.
+- ✅ Turso/libSQL production adapter مضاف ويُفعل عند `TURSO_DATABASE_URL` + `TURSO_AUTH_TOKEN`.
+- ✅ production startup يرفض العمل بدون Turso credentials.
+- ✅ في Turso mode يتم refresh من SQL المركزي داخل transaction قبل تنفيذ الأمر.
+- ⬜ اختبار network/DB failure على Turso الحقيقي.
+- ✅ local SQLite backup/restore drill + integrity verification مضاف.
+- ⬜ تنفيذ backup/restore drill فعلي على حساب Turso الإنتاجي.
+- ✅ sync protocol يستخدم central SQL idempotency/cursor model؛ تبقى مراجعة تشغيلية فعلية على عدة workers.
 
 ---
 
@@ -85,8 +88,9 @@
 - ✅ `SECURITY.md`.
 - ✅ `docs/PRODUCTION_RELEASE_PLAN.md`.
 - ✅ آخر تشغيل CI أخضر: **102 passed + Bandit passed + pip-audit passed**.
-- ⬜ إضافة اختبارات concurrency/multi-device.
-- ⬜ staging smoke tests.
+- ✅ اختبارات concurrency/multi-device sync أضيفت.
+- ✅ staging smoke script + manual GitHub workflow أضيفا.
+- ⬜ تشغيل staging smoke فعلياً بعد ضبط secrets.
 - ⬜ production smoke tests.
 - ⬜ build/release artifact verification.
 
@@ -145,14 +149,14 @@
 
 ## 6. بروتوكول المزامنة (Offline / Multi-device Sync)
 
-- ⬜ server upload protocol.
-- ⬜ download cursor/version protocol.
-- ⬜ conflict detection/reconciliation.
-- ⬜ retry + exponential backoff.
-- ⬜ idempotent sync operations على مستوى الجهاز.
-- ⬜ multi-device concurrency tests.
-- ⬜ reconciliation audit trail.
-- ⬜ visibility واضحة للمستخدم لحالة Online / Offline / Syncing / Failed.
+- ✅ server upload protocol.
+- ✅ download cursor protocol.
+- ✅ conflict detection/reconciliation عبر `STALE_VERSION` وscope conflicts.
+- ✅ retry + exponential backoff على الجهاز للحالات transient.
+- ✅ idempotent sync operations.
+- ✅ multi-device concurrency tests.
+- ✅ append-only sync event/audit trail مع cursor.
+- ⬜ UI visibility كاملة لحالات Online / Offline / Syncing / Failed.
 
 ---
 
@@ -187,14 +191,14 @@
 ## 9. ترتيب التنفيذ قبل Production
 
 ### P0 — لا يتم اعتبار النسخة Production-ready قبل إغلاقها
-1. ⬜ Tenant isolation كامل في models/repositories/queries.
-2. ⬜ Firebase/OIDC production auth + authorization كامل.
-3. ⬜ Turso/libSQL authoritative persistence.
-4. ⬜ API query/command surface كامل ومؤمّن.
-5. ⬜ Offline sync protocol كامل.
-6. ⬜ Multi-device concurrency + conflict tests.
-7. ⬜ Backup/restore drill.
-8. ⬜ Staging smoke test.
+1. 🟢 Tenant isolation code path — تم التنفيذ، مع بقاء مراجعة foreign-key النهائية.
+2. 🟢 Firebase production auth boundary — تم التنفيذ؛ يلزم staging verification.
+3. 🟢 Turso/libSQL persistence path — تم التنفيذ؛ يلزم اختبار فشل DB/network فعلي.
+4. 🟢 Secured query/command/sync API — تم التنفيذ للسطح الحالي؛ أوامر الإدارة المتبقية في P1.
+5. 🟢 Offline sync protocol — تم التنفيذ؛ يلزم اختبار end-to-end على أجهزة فعلية.
+6. 🟢 Multi-device concurrency/conflict coverage — تم التنفيذ برمجياً؛ يلزم staging multi-worker run.
+7. 🟡 Backup/restore — drill محلي جاهز، يلزم drill فعلي على Turso.
+8. 🟡 Staging smoke — automation جاهزة، التشغيل الفعلي يحتاج secrets + staging URL.
 
 ### P1
 - ⬜ إكمال ERP accounting invariants.
@@ -224,9 +228,9 @@
 ## الحالة الحالية
 
 **Branch:** `production-hardening/rc3`  
-**CI:** 🟢 أخضر  
-**Tests:** 🟢 102 passed  
-**Bandit:** 🟢 passed  
-**pip-audit:** 🟢 passed  
-**Production-ready:** ⬜ لا — ما زالت بنود P0 مفتوحة  
-**Main:** لم يتم دمج حزمة الـ hardening بعد.
+**CI:** 🟡 جارٍ بعد آخر تغييرات hardening  
+**Tests:** سيتم تثبيت الرقم النهائي من آخر CI بعد اكتماله  
+**Bandit:** سيتم تثبيت النتيجة من آخر CI  
+**pip-audit:** سيتم تثبيت النتيجة من آخر CI  
+**Production-ready:** ⬜ لا — يلزم staging/Turso operational verification  
+**Main:** لم يتم الدمج.

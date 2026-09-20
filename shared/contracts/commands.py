@@ -8,6 +8,11 @@ class CommandContext:
     user_id: str
     branch_id: str
     permissions: frozenset[str] = frozenset()
+    tenant_id: str = "default"
+
+    @property
+    def idempotency_key(self) -> str:
+        return f"{self.tenant_id}:{self.command_id}"
 
 @dataclass(frozen=True)
 class TransferCommand:

@@ -67,7 +67,7 @@ def test_installment_command_idempotency_is_tenant_scoped():
         ({"wallet_id": "cash", "amount": Decimal("200")},),
     ))
     first = e.create_installment_plan(
-        ctx("plan-1", {"installments.create"}), sale.id, "customer-1", 50, 10, 3
+        ctx("plan-1", {"installments.create"}), sale.id, "customer-1", 0, 10, 3
     )
     second = e.create_installment_plan(
         ctx("plan-1", {"installments.create"}), sale.id, "customer-1", 50, 10, 3

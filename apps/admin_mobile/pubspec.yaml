@@ -1,0 +1,10 @@
+name: mobile_shop_admin
+publish_to: none
+environment:
+  sdk: '>=3.0.0 <4.0.0'
+dependencies:
+  flutter:
+    sdk: flutter
+  flutter_riverpod: ^2.5.1
+  sqflite: ^2.3.3+1
+  path: ^1.9.0

@@ -1,0 +1,9 @@
+[project]
+name = "mobile-shop-erp-backend"
+version = "0.1.0"
+description = "Mobile Shop ERP backend domain contracts and services"
+requires-python = ">=3.11"
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["tests"]

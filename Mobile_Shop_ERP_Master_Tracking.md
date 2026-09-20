@@ -1,6 +1,6 @@
 # Mobile Shop ERP — الملف الأم (تتبّع كل الفيتشرز والخطوات)
 
-**آخر تحديث:** 2026-09-20 — تم تنفيذ حزمة hardening التالية على `production-hardening/rc3`: tenant isolation، production auth boundary، Turso/libSQL path، secured query/sync API، offline sync protocol، concurrency coverage، backup/restore drill، وstaging smoke automation.
+**آخر تحديث:** 2026-09-20 — آخر CI ناجح بعد تنفيذ حزمة hardening التالية على `production-hardening/rc3`: tenant isolation، production auth boundary، Turso/libSQL path، secured query/sync API، offline sync protocol، concurrency coverage، backup/restore drill، وstaging smoke automation.
 
 > هذا الملف هو المرجع الوحيد لحالة المشروع: ما تم إنجازه، وما هو قيد التنفيذ، وما يجب إكماله قبل اعتبار النسخة Production-ready.
 
@@ -228,9 +228,9 @@
 ## الحالة الحالية
 
 **Branch:** `production-hardening/rc3`  
-**CI:** 🟡 جارٍ بعد آخر تغييرات hardening  
-**Tests:** سيتم تثبيت الرقم النهائي من آخر CI بعد اكتماله  
-**Bandit:** سيتم تثبيت النتيجة من آخر CI  
-**pip-audit:** سيتم تثبيت النتيجة من آخر CI  
+**CI:** 🟢 أخضر — آخر run ناجح  
+**Tests:** 🟢 112 passed  
+**Bandit:** 🟢 passed  
+**pip-audit:** 🟢 passed  
 **Production-ready:** ⬜ لا — يلزم staging/Turso operational verification  
 **Main:** لم يتم الدمج.

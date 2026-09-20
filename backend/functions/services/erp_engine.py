@@ -264,6 +264,7 @@ class ERPCommandEngine:
             if not s:raise DomainError('NOT_FOUND','الفاتورة غير موجودة.',{})
             if s.branch_id!=_ctx(command).branch_id: raise DomainError('BRANCH_ACCESS_DENIED','الفاتورة خارج الفرع.',{})
             if s.customer_id!=customer_id: raise DomainError('INVALID_INPUT','العميل لا يطابق عميل الفاتورة.',{})
+            if s.status=='VOIDED': raise DomainError('INVALID_INPUT','لا يمكن تقسيط فاتورة ملغاة.',{})
             if self.customers.get(customer_id) is None: raise DomainError('NOT_FOUND','العميل غير موجود.',{'customer_id':customer_id})
             paid=sum((p.amount for p in s.payments),D0)
             receivable=money(s.total-paid)
@@ -311,7 +312,7 @@ class ERPCommandEngine:
             customer = self.customers.get(customer_id)
             if not customer:
                 raise DomainError('NOT_FOUND','العميل غير موجود.',{'customer_id':customer_id})
-            t=MaintenanceTicket(_ctx(command).command_id,_ctx(command).branch_id,customer_id,device,imei,problem); self._put(self.maintenance,t); self._audit(_ctx(command),'CREATE_MAINTENANCE',t.id); self._processed[t.id]=t; return t
+            t=MaintenanceTicket(_ctx(command).command_id,_ctx(command).branch_id,customer_id,device,imei,problem); self._put(self.maintenance,t); self._audit(_ctx(command),'CREATE_MAINTENANCE',t.id); self._processed[_ctx(command).idempotency_key]=t; return t
     def transition_maintenance(self,command,ticket_id,new_status):
         with self._lock:
             self._auth(_ctx(command),'maintenance.update'); old=self._idem(_ctx(command))
@@ -327,6 +328,8 @@ class ERPCommandEngine:
             if old:return old
             t=self.maintenance.get(ticket_id)
             if not t:raise DomainError('NOT_FOUND','طلب الصيانة غير موجود.',{})
+            if t.branch_id!=_ctx(command).branch_id:raise DomainError('BRANCH_ACCESS_DENIED','طلب الصيانة خارج الفرع.',{})
+            if t.status in {'DELIVERED','CANCELLED'}:raise DomainError('INVALID_INPUT','لا يمكن إلغاء الطلب بعد إغلاقه.',{})
             nt=replace(t,status='CANCELLED'); self.maintenance.update(ticket_id,nt); self._audit(_ctx(command),'CANCEL_MAINTENANCE',ticket_id); self._processed[_ctx(command).idempotency_key]=nt; return nt
     def use_maintenance_part(self,command,ticket_id,product_id,quantity,cost):
         with self._lock:
@@ -422,9 +425,10 @@ class ERPCommandEngine:
             if old:return old
             e=self.employees.get(employee_id)
             if not e:raise DomainError('NOT_FOUND','الموظف غير موجود.',{})
+            if getattr(e,'branch_ids',()) and _ctx(command).branch_id not in e.branch_ids: raise DomainError('BRANCH_ACCESS_DENIED','الموظف غير متاح لهذا الفرع.',{})
             vals=[money(x) for x in (base,commission,bonus,deductions)]
             if any(x<0 for x in vals):raise DomainError('INVALID_INPUT','قيم الراتب غير صحيحة.',{})
-            rec=SalaryRecord(_ctx(command).command_id,employee_id,period,*vals,paid=D0); self._put(self.salary_records,rec); self._audit(_ctx(command),'CALCULATE_SALARY',rec.id,{'net':str(rec.base+rec.commission+rec.bonus-rec.deductions)}); self._processed[rec.id]=rec; return rec
+            rec=SalaryRecord(_ctx(command).command_id,employee_id,period,*vals,paid=D0); self._put(self.salary_records,rec); self._audit(_ctx(command),'CALCULATE_SALARY',rec.id,{'net':str(rec.base+rec.commission+rec.bonus-rec.deductions)}); self._processed[_ctx(command).idempotency_key]=rec; return rec
 
     def pay_salary(self,command,salary_id,wallet_id):
         with self._lock:
@@ -432,7 +436,13 @@ class ERPCommandEngine:
             if old:return old
             r=self.salary_records.get(salary_id)
             if not r:raise DomainError('NOT_FOUND','سجل الراتب غير موجود.',{})
-            a=money(r.base+r.commission+r.bonus-r.deductions); self._wallet(wallet_id,_ctx(command).branch_id)
+            if r.paid>0: raise DomainError('INVALID_INPUT','الراتب تم صرفه بالفعل.',{})
+            e=self.employees.get(r.employee_id)
+            if e is None: raise DomainError('NOT_FOUND','الموظف غير موجود.',{})
+            if getattr(e,'branch_ids',()) and _ctx(command).branch_id not in e.branch_ids: raise DomainError('BRANCH_ACCESS_DENIED','الموظف غير متاح لهذا الفرع.',{})
+            a=money(r.base+r.commission+r.bonus-r.deductions)
+            if a<0: raise DomainError('INVALID_INPUT','صافي الراتب غير صحيح.',{})
+            self._wallet(wallet_id,_ctx(command).branch_id)
             if self._balance(wallet_id)<a:raise DomainError('INSUFFICIENT_WALLET_BALANCE','رصيد المحفظة غير كافٍ.',{})
             nr=replace(r,paid=a); self.salary_records.update(r.id,nr); self._put(self.ledger,LedgerEntry(f'{r.id}:salary',_ctx(command).branch_id,'salary_expense','SALARY',debit=a,reference_id=r.id)); self._put(self.ledger,LedgerEntry(f'{r.id}:wallet',_ctx(command).branch_id,f'wallet:{wallet_id}','SALARY_PAYMENT',credit=a,reference_id=r.id)); self._audit(_ctx(command),'PAY_SALARY',r.id,{'amount':str(a)}); self._processed[_ctx(command).idempotency_key]=nr; return nr
 

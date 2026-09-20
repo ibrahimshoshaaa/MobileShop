@@ -69,14 +69,22 @@ class DurableERPCommandEngine(ERPCommandEngine):
             before_repos = self._repo_attrs()
             before = {name: dict(repo._data) for name, repo in before_repos.items()}
             processed_before = dict(self._processed)
-            result = super().transaction(fn)
-            # Only reached on success — on exception, super().transaction()
-            # already rolled the in-memory state back and re-raised, so
-            # there's nothing new here to persist.
-            self._persist_changes(before, processed_before)
-            return result
+            self._conn.execute("BEGIN")
+            try:
+                result = super().transaction(fn)
+                self._persist_changes(before, processed_before, commit=False)
+                self._conn.commit()
+                return result
+            except Exception:
+                try:
+                    self._conn.rollback()
+                finally:
+                    for name, repo in self._repo_attrs().items():
+                        repo._data = dict(before.get(name, {}))
+                    self._processed = dict(processed_before)
+                raise
 
-    def _persist_changes(self, before: dict, processed_before: dict) -> None:
+    def _persist_changes(self, before: dict, processed_before: dict, commit: bool = True):
         cur = self._conn.cursor()
         for name, repo in self._repo_attrs().items():
             old = before.get(name, {})
@@ -86,13 +94,22 @@ class DurableERPCommandEngine(ERPCommandEngine):
                         "INSERT OR REPLACE INTO records (repo, record_id, payload) VALUES (?, ?, ?)",
                         (name, record_id, json.dumps(serialize_value(value))),
                     )
+        for name, old_repo in before.items():
+            current_repo = self._repo_attrs().get(name)
+            if current_repo is None:
+                continue
+            for record_id in set(old_repo) - set(current_repo._data):
+                cur.execute("DELETE FROM records WHERE repo = ? AND record_id = ?", (name, record_id))
         for command_id, value in self._processed.items():
             if command_id not in processed_before or processed_before[command_id] is not value:
                 cur.execute(
                     "INSERT OR REPLACE INTO records (repo, record_id, payload) VALUES (?, ?, ?)",
                     ("_processed", command_id, json.dumps(serialize_value(value))),
                 )
-        self._conn.commit()
+        for command_id in set(processed_before) - set(self._processed):
+            cur.execute("DELETE FROM records WHERE repo = ? AND record_id = ?", ("_processed", command_id))
+        if commit:
+            self._conn.commit()
 
     def close(self) -> None:
         self._conn.close()

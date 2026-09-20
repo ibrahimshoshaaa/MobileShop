@@ -39,6 +39,7 @@ before the restart is all still there.
 from __future__ import annotations
 
 import sys
+import os
 from pathlib import Path
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -56,6 +57,9 @@ from backend.api_server.dev_seed import seed_dev_data
 from backend.functions.api.http import handle
 from backend.functions.services.durable_engine import DurableERPCommandEngine
 from shared.contracts.errors import DomainError
+
+if os.getenv("APP_ENV", "development").lower() == "production" and os.getenv("AUTH_PROVIDER", "dev").lower() == "dev":
+    raise RuntimeError("Refusing to start production with development-token authentication")
 
 app = FastAPI(
     title="Mobile Shop ERP API (dev)",

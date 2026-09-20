@@ -81,7 +81,7 @@ def test_void_sale_cannot_refund_more_than_wallet_balance():
         ({"wallet_id": "cash", "amount": Decimal("800")},),
     ))
     # Spend most of the cash after the sale, leaving less than the refund.
-    e.create_expense(ctx("expense-after-sale", {"expenses.create"}), "cash", Decimal("500"), "test")
+    e.create_expense(ctx("expense-after-sale", {"expenses.create"}), "cash", Decimal("1200"), "test")
     with pytest.raises(DomainError) as exc:
         e.void_sale(ctx("void-1", {"sales.void"}), sale.id)
     assert exc.value.code == "INSUFFICIENT_WALLET_BALANCE"

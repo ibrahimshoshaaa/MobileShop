@@ -28,8 +28,11 @@ def handle(request, engine, auth_verifier):
     if not branch_id or branch_id not in allowed_branches:
         raise DomainError('BRANCH_ACCESS_DENIED', 'لا يمكن الوصول إلى هذا الفرع.', {'branch_id': branch_id})
 
+    tenant_id = claims.get('tenant_id')
+    if not tenant_id:
+        raise DomainError('UNAUTHORIZED', 'هوية المؤسسة غير موجودة في التوكن.', {})
     permissions = frozenset(claims.get('permissions', ()))
-    ctx = CommandContext(data['commandId'], claims['uid'], branch_id, permissions)
+    ctx = CommandContext(data['commandId'], claims['uid'], branch_id, permissions, str(tenant_id))
     try:
         from .dispatch import dispatch
         result = dispatch(engine, data['command'], ctx, **data.get('payload', {}))

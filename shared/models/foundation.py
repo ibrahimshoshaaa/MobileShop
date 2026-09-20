@@ -19,6 +19,7 @@ class User:
     created_at: datetime = field(default_factory=utc_now)
     updated_at: datetime = field(default_factory=utc_now)
     last_login_at: datetime | None = None
+    tenant_id: str = "default"
 
 @dataclass(frozen=True)
 class Branch:
@@ -31,6 +32,7 @@ class Branch:
     settings: dict[str, Any] = field(default_factory=dict)
     created_at: datetime = field(default_factory=utc_now)
     updated_at: datetime = field(default_factory=utc_now)
+    tenant_id: str = "default"
 
 @dataclass(frozen=True)
 class Settings:
@@ -46,3 +48,4 @@ class Settings:
     employee_commission_rules: dict[str, Any] = field(default_factory=dict)
     allowed_wallets: tuple[str, ...] = ()
     tax: dict[str, Any] = field(default_factory=dict)
+    tenant_id: str = "default"

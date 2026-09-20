@@ -161,9 +161,15 @@ class ERPCommandEngine:
             for i in s.items:
                 self._put(self.stock,StockMovement(f'{s.id}:void:{i.id}',s.branch_id,i.product_id,i.quantity,'VOID_RETURN',s.id,i.product_unit_id,i.cost_snapshot))
                 if i.product_unit_id:self.units.update(i.product_unit_id,replace(self.units.get(i.product_unit_id),status='AVAILABLE'))
+            cogs=sum((i.quantity*i.cost_snapshot for i in s.items),D0)
             self._put(self.ledger,LedgerEntry(f'{s.id}:void:revenue',s.branch_id,'sales_revenue','SALE_VOID',debit=s.total,reference_id=s.id,reversal_of=f'{s.id}:revenue'))
-            self._put(self.ledger,LedgerEntry(f'{s.id}:void:cogs',s.branch_id,'cost_of_goods_sold','SALE_VOID',credit=sum((i.quantity*i.cost_snapshot for i in s.items),D0),reference_id=s.id,reversal_of=f'{s.id}:cogs'))
+            if cogs:
+                self._put(self.ledger,LedgerEntry(f'{s.id}:void:cogs',s.branch_id,'cost_of_goods_sold','SALE_VOID',credit=cogs,reference_id=s.id,reversal_of=f'{s.id}:cogs'))
+                self._put(self.ledger,LedgerEntry(f'{s.id}:void:inventory',s.branch_id,'inventory','SALE_VOID',debit=cogs,reference_id=s.id,reversal_of=f'{s.id}:inventory'))
             for p in s.payments:self._put(self.ledger,LedgerEntry(f'{s.id}:void:{p.id}',s.branch_id,f'wallet:{p.wallet_id}','SALE_REFUND',credit=p.amount,reference_id=s.id,reversal_of=p.id))
+            receivable=s.total-sum((p.amount for p in s.payments),D0)
+            if receivable:
+                self._put(self.ledger,LedgerEntry(f'{s.id}:void:customer',s.branch_id,f'customer:{s.customer_id}','SALE_VOID',credit=receivable,reference_id=s.id,reversal_of=f'{s.id}:customer'))
             self._audit(_ctx(command),'VOID_SALE',s.id,{'reason':reason}); self._processed[_ctx(command).idempotency_key]=ns; return ns
 
     def return_sale(self,command,sale_id,items,refund_wallet_id=None):
@@ -197,8 +203,15 @@ class ERPCommandEngine:
             for i,q in returned:
                 self._put(self.stock,StockMovement(f'{rid}:{i.id}',s.branch_id,i.product_id,q,'RETURN',sale_id,i.product_unit_id,i.cost_snapshot))
                 if i.product_unit_id:self.units.update(i.product_unit_id,replace(self.units.get(i.product_unit_id),status='AVAILABLE'))
+            refund_cost=sum((q*i.cost_snapshot for i,q in returned),D0)
             self._put(self.ledger,LedgerEntry(f'{rid}:revenue',s.branch_id,'sales_revenue','RETURN',debit=money(refund),reference_id=sale_id))
+            if refund_cost:
+                self._put(self.ledger,LedgerEntry(f'{rid}:cogs',s.branch_id,'cost_of_goods_sold','RETURN',credit=refund_cost,reference_id=sale_id,reversal_of=f'{sale_id}:cogs'))
+                self._put(self.ledger,LedgerEntry(f'{rid}:inventory',s.branch_id,'inventory','RETURN',debit=refund_cost,reference_id=sale_id))
             if refund_wallet_id:self._put(self.ledger,LedgerEntry(f'{rid}:wallet',s.branch_id,f'wallet:{refund_wallet_id}','RETURN_REFUND',credit=money(refund),reference_id=sale_id))
+            else:
+                if s.customer_id:
+                    self._put(self.ledger,LedgerEntry(f'{rid}:customer',s.branch_id,f'customer:{s.customer_id}','RETURN_RECEIVABLE',credit=money(refund),reference_id=sale_id))
             self._audit(_ctx(command),'RETURN_SALE',sale_id,{'amount':str(money(refund))}); self._processed[_ctx(command).idempotency_key]=self.returns.get(rid); return self.returns.get(rid)
 
     def create_expense(self,command,wallet_id,amount,category,note=None):

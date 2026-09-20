@@ -33,10 +33,25 @@ from backend.functions.services.erp_engine import ERPCommandEngine
 
 
 class DurableERPCommandEngine(ERPCommandEngine):
-    def __init__(self, db_path: str | Path = "erp_durable.db"):
+    def __init__(self, db_path: str | Path = "erp_durable.db", connection=None):
         super().__init__()
         self._db_path = Path(db_path)
-        self._conn = sqlite3.connect(str(self._db_path), check_same_thread=False)
+        self._remote = connection is not None
+        if connection is not None:
+            self._conn = connection
+        else:
+            import os
+            url = os.getenv("TURSO_DATABASE_URL")
+            token = os.getenv("TURSO_AUTH_TOKEN")
+            if url and token:
+                try:
+                    import libsql
+                except ImportError as exc:
+                    raise RuntimeError("libsql is required when TURSO_DATABASE_URL is configured") from exc
+                self._conn = libsql.connect(url, auth_token=token)
+                self._remote = True
+            else:
+                self._conn = sqlite3.connect(str(self._db_path), check_same_thread=False)
         self._conn.execute(
             """
             CREATE TABLE IF NOT EXISTS records (

@@ -43,19 +43,24 @@ class DurableERPCommandEngine(ERPCommandEngine):
                 repo TEXT NOT NULL,
                 record_id TEXT NOT NULL,
                 payload TEXT NOT NULL,
+                tenant_id TEXT NOT NULL DEFAULT 'legacy',
                 PRIMARY KEY (repo, record_id)
             )
             """
         )
         self._conn.commit()
+        columns = {row[1] for row in self._conn.execute("PRAGMA table_info(records)").fetchall()}
+        if "tenant_id" not in columns:
+            self._conn.execute("ALTER TABLE records ADD COLUMN tenant_id TEXT NOT NULL DEFAULT 'legacy'")
+            self._conn.commit()
         self._reload()
 
     def _repo_attrs(self) -> dict:
         return {name: value for name, value in self.__dict__.items() if hasattr(value, "_data")}
 
     def _reload(self) -> None:
-        cur = self._conn.execute("SELECT repo, record_id, payload FROM records")
-        for repo_name, record_id, payload in cur.fetchall():
+        cur = self._conn.execute("SELECT repo, record_id, payload, tenant_id FROM records")
+        for repo_name, record_id, payload, tenant_id in cur.fetchall():
             value = deserialize_value(json.loads(payload))
             if repo_name == "_processed":
                 self._processed[record_id] = value
@@ -63,6 +68,7 @@ class DurableERPCommandEngine(ERPCommandEngine):
             repo = getattr(self, repo_name, None)
             if repo is not None and hasattr(repo, "_data"):
                 repo._data[record_id] = value
+                repo._tenant_by_id[record_id] = tenant_id
 
     def transaction(self, fn):
         with self._lock:
@@ -91,8 +97,8 @@ class DurableERPCommandEngine(ERPCommandEngine):
             for record_id, value in repo._data.items():
                 if record_id not in old or old[record_id] is not value:
                     cur.execute(
-                        "INSERT OR REPLACE INTO records (repo, record_id, payload) VALUES (?, ?, ?)",
-                        (name, record_id, json.dumps(serialize_value(value))),
+                        "INSERT OR REPLACE INTO records (repo, record_id, payload, tenant_id) VALUES (?, ?, ?, ?)",
+                        (name, record_id, json.dumps(serialize_value(value)), repo.tenant_of(record_id) or "legacy"),
                     )
         for name, old_repo in before.items():
             current_repo = self._repo_attrs().get(name)
@@ -103,8 +109,8 @@ class DurableERPCommandEngine(ERPCommandEngine):
         for command_id, value in self._processed.items():
             if command_id not in processed_before or processed_before[command_id] is not value:
                 cur.execute(
-                    "INSERT OR REPLACE INTO records (repo, record_id, payload) VALUES (?, ?, ?)",
-                    ("_processed", command_id, json.dumps(serialize_value(value))),
+                    "INSERT OR REPLACE INTO records (repo, record_id, payload, tenant_id) VALUES (?, ?, ?, ?)",
+                    ("_processed", command_id, json.dumps(serialize_value(value)), command_id.split(":", 1)[0] if ":" in command_id else "legacy"),
                 )
         for command_id in set(processed_before) - set(self._processed):
             cur.execute("DELETE FROM records WHERE repo = ? AND record_id = ?", ("_processed", command_id))

@@ -43,8 +43,16 @@ class Repository:
                 raise ValueError("ALREADY_EXISTS")
             if tenant_id is not None and (not isinstance(tenant_id, str) or not tenant_id.strip()):
                 raise ValueError("tenant_id must be a non-empty string")
+            scope = current_tenant()
+            record_tenant = tenant_id
+            if record_tenant is None and isinstance(v, dict):
+                record_tenant = v.get("tenant_id")
+            if record_tenant is None:
+                record_tenant = scope
+            if scope is not None and record_tenant != scope:
+                raise PermissionError("CROSS_TENANT")
             self._data[k] = v
-            self._tenant_by_id[k] = tenant_id if tenant_id is not None else "legacy"
+            self._tenant_by_id[k] = record_tenant if record_tenant is not None else "legacy"
             return v
 
     def update(self, k, v):

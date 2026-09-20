@@ -287,7 +287,7 @@ class ERPCommandEngine:
             prior_paid=sum((x.amount for x in self.installment_payments.all() if x.plan_id==plan_id),D0)
             principal_paid=min(prior_paid,p.base_financed)
             interest_paid=max(D0,prior_paid-principal_paid)
-            principal_part=min(a,max(D0,p.base_amount-principal_paid))
+            principal_part=min(a,max(D0,p.base_financed-principal_paid))
             interest_part=money(a-principal_part)
             ip=InstallmentPayment(_ctx(command).command_id,plan_id,a,wallet_id)
             self._put(self.installment_payments,ip)

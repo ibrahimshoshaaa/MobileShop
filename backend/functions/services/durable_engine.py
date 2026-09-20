@@ -89,6 +89,7 @@ class DurableERPCommandEngine(ERPCommandEngine):
         with self._lock:
             before_repos = self._repo_attrs()
             before = {name: dict(repo._data) for name, repo in before_repos.items()}
+            before_tenants = {name: dict(repo._tenant_by_id) for name, repo in before_repos.items()}
             processed_before = dict(self._processed)
             self._conn.execute("BEGIN")
             try:
@@ -102,6 +103,7 @@ class DurableERPCommandEngine(ERPCommandEngine):
                 finally:
                     for name, repo in self._repo_attrs().items():
                         repo._data = dict(before.get(name, {}))
+                        repo._tenant_by_id = dict(before_tenants.get(name, {}))
                     self._processed = dict(processed_before)
                 raise
 

@@ -18,6 +18,7 @@ from __future__ import annotations
 
 from decimal import Decimal
 
+from backend.functions.repositories.generic import set_tenant_scope, reset_tenant_scope
 from shared.models.erp import Customer, Product, StockMovement, Wallet
 
 

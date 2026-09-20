@@ -63,7 +63,7 @@ class LocalStore:
         self.db.commit()
 
     def pending(self) -> list[dict[str, Any]]:
-        rows = self.db.execute("SELECT command_id,payload_json,status FROM sync_operations WHERE status='PENDING' ORDER BY rowid").fetchall()
+        rows = self.db.execute("SELECT command_id,payload_json,status FROM sync_operations WHERE status='PENDING' AND (next_attempt_at IS NULL OR next_attempt_at <= CURRENT_TIMESTAMP) ORDER BY rowid").fetchall()
         return [{"command_id": r["command_id"], "payload": json.loads(r["payload_json"]), "status": r["status"]} for r in rows]
 
     def mark_retry(self, command_id: str, error_code: str, next_attempt_at: str) -> None:

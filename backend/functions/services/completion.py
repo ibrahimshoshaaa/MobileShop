@@ -123,6 +123,7 @@ def install_completion(engine_cls):
             if old:return old
             t=self.maintenance.get(ticket_id)
             if not t:raise DomainError('NOT_FOUND','طلب الصيانة غير موجود.',{})
+            if self.customers.get(t.customer_id) is None: raise DomainError('NOT_FOUND','العميل المرتبط بالصيانة غير موجود.',{})
             if t.status!='READY':raise DomainError('INVALID_INPUT','لا يمكن التسليم قبل READY.',{})
             price=M(final_price); pay=M(payment)
             if price<0 or pay<0 or pay>price:raise DomainError('INVALID_PAYMENT','قيمة الدفع غير صحيحة.',{})
@@ -152,7 +153,10 @@ def install_completion(engine_cls):
             if not items: raise DomainError('INVALID_INPUT','المشتريات بدون أصناف.',{})
             total=M(sum((Decimal(str(i['quantity']))*Decimal(str(i['unit_cost'])) for i in items),D0)); paid=M(paid)
             if paid<0 or paid>total: raise DomainError('INVALID_PAYMENT','قيمة السداد غير صحيحة.',{})
-            if self.suppliers.get(supplier_id) is None: raise DomainError('NOT_FOUND','المورد غير موجود.',{'supplier_id':supplier_id})
+            supplier = self.suppliers.get(supplier_id)
+            if supplier is None: raise DomainError('NOT_FOUND','المورد غير موجود.',{'supplier_id':supplier_id})
+            if getattr(supplier, 'branch_ids', ()) and ctx.branch_id not in supplier.branch_ids:
+                raise DomainError('BRANCH_ACCESS_DENIED','المورد غير متاح لهذا الفرع.',{})
             wallet_id=next((i.get('wallet_id') for i in items if i.get('wallet_id')),None)
             if paid:
                 if not wallet_id: raise DomainError('INVALID_PAYMENT','يجب تحديد محفظة للسداد.',{})
@@ -215,6 +219,8 @@ def install_completion(engine_cls):
             paid=sum((p.amount for p in pays),D0)
             if paid>total: raise DomainError('INVALID_PAYMENT','المدفوع أكبر من إجمالي الفاتورة.',{})
             if paid<total and not command.customer_id: raise DomainError('INVALID_PAYMENT','البيع الآجل يتطلب عميلًا.',{})
+            if command.customer_id and self.customers.get(command.customer_id) is None:
+                raise DomainError('NOT_FOUND','العميل غير موجود.',{'customer_id':command.customer_id})
             for p in pays:self._wallet(p.wallet_id,ctx.branch_id)
             s=Sale(ctx.command_id,ctx.branch_id,command.customer_id,tuple(items),M(subtotal),discount,total,pays)
             self._put(self.sales,s)
@@ -245,6 +251,7 @@ def install_completion(engine_cls):
             self._auth(ctx,'customers.collect'); old=self._idem(ctx)
             if old:return old
             a=M(amount); self._wallet(wallet_id,ctx.branch_id)
+            if self.customers.get(customer_id) is None: raise DomainError('NOT_FOUND','العميل غير موجود.',{'customer_id':customer_id})
             if a<=0:raise DomainError('INVALID_PAYMENT','قيمة التحصيل غير صحيحة.',{})
             bal=self.customer_balance(customer_id,ctx.branch_id)
             if a>bal:raise DomainError('INVALID_PAYMENT','التحصيل أكبر من رصيد العميل.',{})

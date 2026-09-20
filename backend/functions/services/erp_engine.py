@@ -253,8 +253,13 @@ class ERPCommandEngine:
             if old:return old
             a=money(amount); s=self._wallet(source,_ctx(command).branch_id); d=self._wallet(destination,_ctx(command).branch_id)
             if source==destination or a<=0:raise DomainError('INVALID_INPUT','تحويل المحفظة غير صحيح.',{})
-            if self._balance(source)<a:raise DomainError('INSUFFICIENT_WALLET_BALANCE','رصيد المحفظة المصدر غير كافٍ.',{})
-            tid=_ctx(command).command_id; self._put(self.ledger,LedgerEntry(f'{tid}:out',_ctx(command).branch_id,f'wallet:{source}','WALLET_TRANSFER',credit=a,reference_id=tid)); self._put(self.ledger,LedgerEntry(f'{tid}:in',_ctx(command).branch_id,f'wallet:{destination}','WALLET_TRANSFER',debit=a,reference_id=tid)); self._audit(_ctx(command),'TRANSFER_WALLET',tid,{'amount':str(a),'source':s.name,'destination':d.name}); self._processed[_ctx(command).idempotency_key]=tid; return tid
+            comm=money(a*Decimal('0.01'))
+            if self._balance(source)<a+comm:raise DomainError('INSUFFICIENT_WALLET_BALANCE','رصيد المحفظة المصدر غير كافٍ.',{})
+            tid=_ctx(command).command_id
+            self._put(self.ledger,LedgerEntry(f'{tid}:out',_ctx(command).branch_id,f'wallet:{source}','WALLET_TRANSFER',credit=a+comm,reference_id=tid))
+            self._put(self.ledger,LedgerEntry(f'{tid}:in',_ctx(command).branch_id,f'wallet:{destination}','WALLET_TRANSFER',debit=a,reference_id=tid))
+            self._put(self.ledger,LedgerEntry(f'{tid}:commission',_ctx(command).branch_id,'transfer_commission','TRANSFER_COMMISSION',credit=comm,reference_id=tid))
+            self._audit(_ctx(command),'TRANSFER_WALLET',tid,{'amount':str(a),'commission':str(comm),'source':s.name,'destination':d.name}); self._processed[_ctx(command).idempotency_key]=tid; return tid
 
     def create_installment_plan(self,command,sale_id,customer_id,down_payment,rate_percent,term_months,rounding='0.01'):
         with self._lock:

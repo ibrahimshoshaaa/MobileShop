@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import os
 import time
 import sqlite3
@@ -11,6 +12,8 @@ from typing import Callable, Iterable
 
 from shared.contracts.errors import DomainError
 
+
+logger = logging.getLogger(__name__)
 
 _CONFLICT_CODES = {"STALE_VERSION", "TRANSACTION_CONFLICT", "ACCOUNT_SCOPE_MISMATCH"}
 _RETRYABLE_CODES = {"TEMPORARY_UNAVAILABLE", "DB_BUSY", "NETWORK_ERROR"}
@@ -120,13 +123,10 @@ class SyncProtocol:
                     message = str(exc)
                     is_unique = isinstance(exc, sqlite3.IntegrityError) or "UNIQUE constraint failed" in message
                     is_busy = "SQLITE_BUSY" in message or "database is locked" in message
-                    # Failed SQLite writes can keep the transaction open and hold
-                    # the database lock. Always release that transaction before
-                    # retrying or reading the competing worker's receipt.
                     try:
                         self.db.rollback()
-                    except Exception:
-                        pass
+                    except Exception as rollback_exc:
+                        logger.debug("sync claim rollback failed", exc_info=rollback_exc)
                     if is_busy:
                         if attempt < 4:
                             time.sleep(0.05 * (attempt + 1))
@@ -149,8 +149,8 @@ class SyncProtocol:
                             read_busy = "SQLITE_BUSY" in read_message or "database is locked" in read_message
                             try:
                                 self.db.rollback()
-                            except Exception:
-                                pass
+                            except Exception as rollback_exc:
+                                logger.debug("sync receipt-read rollback failed", exc_info=rollback_exc)
                             if not read_busy or read_attempt == 7:
                                 raise
                             time.sleep(0.05 * (read_attempt + 1))
@@ -193,8 +193,8 @@ class SyncProtocol:
             except Exception:
                 try:
                     self.db.rollback()
-                except Exception:
-                    pass
+                except Exception as rollback_exc:
+                    logger.debug("sync executor rollback failed", exc_info=rollback_exc)
                 self.db.execute(
                     "UPDATE sync_receipts SET status='RETRYABLE', error_code='TEMPORARY_UNAVAILABLE', claimed_at=NULL WHERE tenant_id=? AND branch_id=? AND command_id=?",
                     (tenant_id, branch_id, command_id),

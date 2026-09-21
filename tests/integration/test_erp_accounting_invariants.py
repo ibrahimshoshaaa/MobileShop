@@ -9,7 +9,7 @@ from shared.models.erp import LedgerEntry, Product, Wallet
 
 
 def ctx(cid, perms):
-    return CommandContext(cid, "u1", "b1", frozenset(perms), "tenant-a")
+    return CommandContext(cid, "u1", "b1", frozenset(perms), "default")
 
 
 def seeded():
@@ -62,8 +62,9 @@ def test_expense_decreases_wallet_and_balances_ledger():
 
 def test_installment_command_idempotency_is_tenant_scoped():
     e = seeded()
+    e.customers.create("customer-1", __import__("shared.models.erp", fromlist=["Customer"]).Customer("customer-1", "Customer"))
     sale = e.create_sale(CreateSaleCommand(
-        ctx("sale-installment", {"sales.create"}), None,
+        ctx("sale-installment", {"sales.create"}), "customer-1",
         ({"product_id": "p1", "quantity": 1, "unit_price": Decimal("200")},),
         ({"wallet_id": "cash", "amount": Decimal("200")},),
     ))

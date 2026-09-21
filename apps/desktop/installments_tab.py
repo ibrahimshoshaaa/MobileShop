@@ -13,8 +13,10 @@ COLLECTION_METHODS = [m for m in sales_repo.PAYMENT_METHODS if m[0] != "CREDIT"]
 
 
 class InstallmentsTab(ttk.Frame):
-    def __init__(self, master):
+    def __init__(self, master, repo=installments_repo, customers_repo_module=customers_repo):
         super().__init__(master)
+        self.repo = repo
+        self.customers_repo_module = customers_repo_module
         self._build()
         self.reload()
 
@@ -38,7 +40,7 @@ class InstallmentsTab(ttk.Frame):
 
     def reload(self):
         self.tree.delete(*self.tree.get_children())
-        self._plans = {p.id: p for p in installments_repo.list_plans()}
+        self._plans = {p.id: p for p in self.repo.list_plans()}
         for p in self._plans.values():
             remaining = installments_repo.remaining(p.id)
             done = remaining <= 0.01
@@ -50,7 +52,7 @@ class InstallmentsTab(ttk.Frame):
             )
 
     def _new_plan(self):
-        window = NewInstallmentPlanWindow(self)
+        window = NewInstallmentPlanWindow(self, repo=self.repo, customers_repo_module=self.customers_repo_module)
         self.wait_window(window)
         self.reload()
 
@@ -60,14 +62,16 @@ class InstallmentsTab(ttk.Frame):
             return
         plan = self._plans.get(selection[0])
         if plan:
-            window = PlanDetailWindow(self, plan)
+            window = PlanDetailWindow(self, plan, repo=self.repo)
             self.wait_window(window)
             self.reload()
 
 
 class NewInstallmentPlanWindow(tk.Toplevel):
-    def __init__(self, master):
+    def __init__(self, master, repo=installments_repo, customers_repo_module=customers_repo):
         super().__init__(master)
+        self.repo = repo
+        self.customers_repo_module = customers_repo_module
         self.customer = None
         self.title("خطة تقسيط جديدة")
         self.geometry("380x560")
@@ -106,7 +110,7 @@ class NewInstallmentPlanWindow(tk.Toplevel):
         self._refresh_preview()
 
     def _pick_customer(self):
-        picker = CustomerPickerWindow(self)
+        picker = CustomerPickerWindow(self, repo=self.customers_repo_module)
         self.wait_window(picker)
         if picker.selected_customer:
             self.customer = picker.selected_customer
@@ -152,9 +156,10 @@ class NewInstallmentPlanWindow(tk.Toplevel):
 
 
 class PlanDetailWindow(tk.Toplevel):
-    def __init__(self, master, plan):
+    def __init__(self, master, plan, repo=installments_repo):
         super().__init__(master)
         self.plan = plan
+        self.repo = repo
         self.title(f"خطة تقسيط • {plan.customer_name}")
         self.geometry("420x520")
         self._build()
@@ -194,15 +199,16 @@ class PlanDetailWindow(tk.Toplevel):
 
     def _collect(self):
         remaining = installments_repo.remaining(self.plan.id)
-        dialog = CollectPaymentDialog(self, self.plan, remaining)
+        dialog = CollectPaymentDialog(self, self.plan, remaining, repo=self.repo)
         self.wait_window(dialog)
         self._render()
 
 
 class CollectPaymentDialog(tk.Toplevel):
-    def __init__(self, master, plan, remaining):
+    def __init__(self, master, plan, remaining, repo=installments_repo):
         super().__init__(master)
         self.plan = plan
+        self.repo = repo
         self.remaining = remaining
         self.title("تحصيل قسط")
         self.geometry("300x260")

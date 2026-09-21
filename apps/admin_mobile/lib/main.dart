@@ -12,20 +12,6 @@ void main() => runApp(const MobileShopApp());
 class MobileShopApp extends StatelessWidget {
   const MobileShopApp({super.key});
 
-  static const drawerDestinations = [
-    NavigationDrawerDestination(icon: Icon(Icons.dashboard_rounded), selectedIcon: Icon(Icons.dashboard_rounded, color: Color(0xFF0B1220)), label: Text('لوحة التحكم')),
-    NavigationDrawerDestination(icon: Icon(Icons.point_of_sale_rounded), selectedIcon: Icon(Icons.point_of_sale_rounded, color: Color(0xFF0B1220)), label: Text('المبيعات')),
-    NavigationDrawerDestination(icon: Icon(Icons.inventory_2_rounded), selectedIcon: Icon(Icons.inventory_2_rounded, color: Color(0xFF0B1220)), label: Text('المخزون')),
-    NavigationDrawerDestination(icon: Icon(Icons.people_alt_rounded), selectedIcon: Icon(Icons.people_alt_rounded, color: Color(0xFF0B1220)), label: Text('العملاء')),
-    NavigationDrawerDestination(icon: Icon(Icons.local_shipping_rounded), selectedIcon: Icon(Icons.local_shipping_rounded, color: Color(0xFF0B1220)), label: Text('الموردون')),
-    NavigationDrawerDestination(icon: Icon(Icons.payments_rounded), selectedIcon: Icon(Icons.payments_rounded, color: Color(0xFF0B1220)), label: Text('الأقساط')),
-    NavigationDrawerDestination(icon: Icon(Icons.build_rounded), selectedIcon: Icon(Icons.build_rounded, color: Color(0xFF0B1220)), label: Text('الصيانة')),
-    NavigationDrawerDestination(icon: Icon(Icons.receipt_long_rounded), selectedIcon: Icon(Icons.receipt_long_rounded, color: Color(0xFF0B1220)), label: Text('المصروفات')),
-    NavigationDrawerDestination(icon: Icon(Icons.analytics_rounded), selectedIcon: Icon(Icons.analytics_rounded, color: Color(0xFF0B1220)), label: Text('التقارير')),
-    NavigationDrawerDestination(icon: Icon(Icons.store_rounded), selectedIcon: Icon(Icons.store_rounded, color: Color(0xFF0B1220)), label: Text('الفروع والمستخدمون')),
-    NavigationDrawerDestination(icon: Icon(Icons.settings_rounded), selectedIcon: Icon(Icons.settings_rounded, color: Color(0xFF0B1220)), label: Text('الإعدادات')),
-  ];
-
   @override
   Widget build(BuildContext context) {
     const navy = Color(0xFF0B1220);
@@ -96,6 +82,20 @@ class DashboardShell extends StatefulWidget {
 
 class _DashboardShellState extends State<DashboardShell> {
   int index = 0;
+
+  static const drawerDestinations = [
+    NavigationDrawerDestination(icon: Icon(Icons.dashboard_rounded), selectedIcon: Icon(Icons.dashboard_rounded, color: Color(0xFF0B1220)), label: Text('لوحة التحكم')),
+    NavigationDrawerDestination(icon: Icon(Icons.point_of_sale_rounded), selectedIcon: Icon(Icons.point_of_sale_rounded, color: Color(0xFF0B1220)), label: Text('المبيعات')),
+    NavigationDrawerDestination(icon: Icon(Icons.inventory_2_rounded), selectedIcon: Icon(Icons.inventory_2_rounded, color: Color(0xFF0B1220)), label: Text('المخزون')),
+    NavigationDrawerDestination(icon: Icon(Icons.people_alt_rounded), selectedIcon: Icon(Icons.people_alt_rounded, color: Color(0xFF0B1220)), label: Text('العملاء')),
+    NavigationDrawerDestination(icon: Icon(Icons.local_shipping_rounded), selectedIcon: Icon(Icons.local_shipping_rounded, color: Color(0xFF0B1220)), label: Text('الموردون')),
+    NavigationDrawerDestination(icon: Icon(Icons.payments_rounded), selectedIcon: Icon(Icons.payments_rounded, color: Color(0xFF0B1220)), label: Text('الأقساط')),
+    NavigationDrawerDestination(icon: Icon(Icons.build_rounded), selectedIcon: Icon(Icons.build_rounded, color: Color(0xFF0B1220)), label: Text('الصيانة')),
+    NavigationDrawerDestination(icon: Icon(Icons.receipt_long_rounded), selectedIcon: Icon(Icons.receipt_long_rounded, color: Color(0xFF0B1220)), label: Text('المصروفات')),
+    NavigationDrawerDestination(icon: Icon(Icons.analytics_rounded), selectedIcon: Icon(Icons.analytics_rounded, color: Color(0xFF0B1220)), label: Text('التقارير')),
+    NavigationDrawerDestination(icon: Icon(Icons.store_rounded), selectedIcon: Icon(Icons.store_rounded, color: Color(0xFF0B1220)), label: Text('الفروع والمستخدمون')),
+    NavigationDrawerDestination(icon: Icon(Icons.settings_rounded), selectedIcon: Icon(Icons.settings_rounded, color: Color(0xFF0B1220)), label: Text('الإعدادات')),
+  ];
 
   static const pages = [
     ('لوحة التحكم', Icons.dashboard_rounded),
@@ -383,7 +383,7 @@ class SettingsPage extends StatelessWidget {
       const SizedBox(height: 6),
       const Text('تحكم في الحساب والمزامنة والأمان.', style: TextStyle(color: Colors.black54)),
       const SizedBox(height: 18),
-      const Card(child: SwitchListTile(
+      Card(child: SwitchListTile(
         value: false,
         onChanged: (_) {},
         title: const Text('Online', style: TextStyle(fontWeight: FontWeight.bold)),

@@ -1,0 +1,40 @@
+name: Turso recovery drill
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  pitr:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Turso CLI
+        run: curl -sSfL https://get.tur.so/install.sh | bash
+      - name: Validate recovery configuration
+        env:
+          TURSO_API_TOKEN: ${{ secrets.TURSO_API_TOKEN }}
+          TURSO_ORG: ${{ secrets.TURSO_ORG }}
+          TURSO_SOURCE_DB: ${{ secrets.TURSO_SOURCE_DB }}
+        run: |
+          set -euo pipefail
+          test -n "$TURSO_API_TOKEN"
+          test -n "$TURSO_ORG"
+          test -n "$TURSO_SOURCE_DB"
+      - name: Restore source to a disposable point-in-time database
+        env:
+          TURSO_API_TOKEN: ${{ secrets.TURSO_API_TOKEN }}
+          TURSO_ORG: ${{ secrets.TURSO_ORG }}
+          TURSO_SOURCE_DB: ${{ secrets.TURSO_SOURCE_DB }}
+        run: |
+          set -euo pipefail
+          export PATH="$HOME/.turso/bin:$PATH"
+          turso auth login --token "$TURSO_API_TOKEN"
+          timestamp="$(date -u -d '2 minutes ago' '+%Y-%m-%dT%H:%M:%SZ')"
+          target="mobile-shop-recovery-${GITHUB_RUN_ID}"
+          turso db create "$target" --org "$TURSO_ORG" --from-db "$TURSO_SOURCE_DB" --timestamp "$timestamp"
+          turso db shell "$target" "PRAGMA integrity_check;" | grep -q "ok"
+          turso db destroy "$target" --org "$TURSO_ORG" --yes
+          echo "TURSO_PITR_RECOVERY_OK"

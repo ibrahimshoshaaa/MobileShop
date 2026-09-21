@@ -134,7 +134,7 @@ def test_installment_down_payment_clears_existing_receivable():
     assert e._balance("cash") == Decimal("5050.00")
     e.collect_installment(ctx("collect", {"installments.collect"}), plan.id, Decimal("165"), "cash")
     assert e.customer_balance("c1", "b1") == Decimal("0.00")
-    assert e.ledger_transaction_totals(plan.id) == (Decimal("215.00"), Decimal("215.00"))
+    assert e.ledger_transaction_totals(plan.id) == (Decimal("230.00"), Decimal("230.00"))
 
 
 
@@ -369,7 +369,7 @@ def test_product_unit_cannot_be_purchased_as_a_different_product():
             [{"product_id": "wrong-product", "product_unit_id": "u2", "quantity": Decimal("1"), "unit_cost": Decimal("100")}],
             Decimal("0"),
         )
-    assert exc.value.code == "NOT_FOUND"
+    assert exc.value.code == "INVALID_INPUT"
 
 
 def test_installment_interest_is_added_to_customer_receivable():

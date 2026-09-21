@@ -29,12 +29,12 @@ def test_wallet_transfer_commission_is_fully_balanced_and_idempotent():
     first = e.transfer_between_wallets(ctx("wt-1", {"wallet.transfer"}), "cash", "digital", Decimal("100"))
     second = e.transfer_between_wallets(ctx("wt-1", {"wallet.transfer"}), "cash", "digital", Decimal("100"))
     assert first == second == "wt-1"
-    assert e._balance("cash") == Decimal("1899.00")
+    assert e._balance("cash") == Decimal("5899.00")
     assert e._balance("digital") == Decimal("100.00")
     rows = [x for x in e.ledger.all() if x.reference_id == "wt-1"]
-    assert sum((x.debit for x in rows), Decimal("0")) == Decimal("100.00")
-    assert sum((x.credit for x in rows), Decimal("0")) == Decimal("102.00")
-    assert any(x.account_id == "transfer_commission" and x.credit == Decimal("1.00") for x in rows)
+    assert sum((x.debit for x in rows), Decimal("0")) == Decimal("101.00")
+    assert sum((x.credit for x in rows), Decimal("0")) == Decimal("101.00")
+    assert any(x.account_id == "transfer_commission_expense" and x.debit == Decimal("1.00") for x in rows)
 
 
 def test_salary_cannot_be_paid_twice_and_is_idempotent_at_calculation():

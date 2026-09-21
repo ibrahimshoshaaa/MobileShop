@@ -46,3 +46,24 @@ def test_stale_version_is_a_conflict(tmp_path):
     assert out["results"][0]["status"] == "CONFLICT"
     assert out["results"][0]["error_code"] == "STALE_VERSION"
     sync.close()
+
+
+def test_upload_rejects_reused_command_id_with_different_payload(tmp_path):
+    sync = SyncProtocol(tmp_path / "sync.db")
+    calls = []
+
+    def execute(envelope):
+        calls.append(envelope["payload"])
+        return {"ok": True}
+
+    first = {"command_id": "same", "tenant_id": "t1", "branch_id": "b1", "payload": {"amount": 10}}
+    changed = {"command_id": "same", "tenant_id": "t1", "branch_id": "b1", "payload": {"amount": 999}}
+
+    out1 = sync.upload([first], tenant_id="t1", branch_id="b1", executor=execute)
+    out2 = sync.upload([changed], tenant_id="t1", branch_id="b1", executor=execute)
+
+    assert out1["results"][0]["status"] == "APPLIED"
+    assert out2["results"][0]["status"] == "CONFLICT"
+    assert out2["results"][0]["error_code"] == "IDEMPOTENCY_KEY_REUSE"
+    assert calls == [{"amount": 10}]
+    sync.close()

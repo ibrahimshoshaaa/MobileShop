@@ -3,7 +3,7 @@ name: Turso Deep Integration
 on:
   workflow_dispatch:
   push:
-    branches: ["main", "release/complete-release-gates"]
+    branches: ["main", "release/complete-release-gates", "release/production-gates-audit"]
 
 permissions:
   contents: read

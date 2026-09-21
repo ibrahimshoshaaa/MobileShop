@@ -49,3 +49,15 @@ def test_daily_closing_and_reports():
 
 def test_salary_payment():
     e=base(); e.employees.create('e',Employee('e','Ali',('b1',),fixed_salary=Decimal('200'))); r=e.calculate_salary(ctx('sal'),'e','2026-09',200,10,5,15); p=e.pay_salary(ctx('pay'),r.id,'w'); assert p.paid==200
+
+
+def test_daily_closing_freezes_operations_until_reopened():
+    e=base()
+    e.close_day(ctx('close'),date.today(),{'w':500,'w2':0})
+    with pytest.raises(DomainError) as x:
+        e.create_expense(ctx('blocked'),'w',Decimal('10'),'after close')
+    assert x.value.code=='DAY_CLOSED'
+    reopened=e.reopen_day(CommandContext('reopen','u','b1',frozenset({'closing.reopen'})),date.today())
+    assert reopened.locked is False
+    e.create_expense(ctx('allowed'),'w',Decimal('10'),'after reopen')
+    assert e._balance('w')==Decimal('490')

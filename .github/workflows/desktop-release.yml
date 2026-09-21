@@ -11,6 +11,8 @@ on:
         required: true
         default: "1.0.0"
   push:
+    branches:
+      - "feat/desktop-release-pipeline"
     tags:
       - "v*.*.*"
 

@@ -58,5 +58,5 @@ def _wallet_for_method(method):
     return w["id"]
 
 def deliver_ticket(*,ticket_id,final_price,payment,method):
-    wid=_wallet_for_method(method) if payment>0 else _wallet_for_method(method)
+    wid=_wallet_for_method(method) if payment>0 else None
     return _to_ticket(_client.command(f"cmd-mnt-deliver-{uuid.uuid4().hex[:12]}","deliverMaintenanceTicket",{"ticket_id":ticket_id,"final_price":final_price,"payment":payment,"wallet_id":wid}))

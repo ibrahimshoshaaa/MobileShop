@@ -1,27 +1,4 @@
-"""Adds real SQLite-backed durability to ERPCommandEngine, without changing
-erp_engine.py or completion.py at all.
-
-Approach: `DurableERPCommandEngine.transaction()` wraps the inherited
-`transaction()` (installed by completion.py). The base implementation
-already does correct atomic rollback-on-exception for the in-memory
-Repository dicts — that logic is untouched. This subclass only adds a step
-*after* a transaction has already succeeded: diff every repository's
-current state against a snapshot taken before the transaction ran, and
-write whatever changed to a local SQLite table. On construction, everything
-previously written is reloaded back into the in-memory repositories before
-the engine is used.
-
-This directly answers two items in the project status doc's "Partially
-implemented" list: a persistent repository implementation, and persistent
-idempotency records (the `_processed` dict is persisted the same way).
-
-Still explicitly NOT what the status doc means by "Turso/libSQL connection
-management" — this is a single local SQLite file for one process, not a
-managed remote database, and there is still no multi-server coordination.
-It is, however, a real, working step from "resets on every restart" to
-"survives restarts on this machine" — see backend/api_server/README.md for
-how this fits with the rest of what's still missing.
-"""
+"""Durable ERP command engine backed by SQLite/libSQL."""
 from __future__ import annotations
 
 import json
@@ -38,6 +15,7 @@ class DurableERPCommandEngine(ERPCommandEngine):
         super().__init__()
         self._db_path = Path(db_path)
         self._remote = connection is not None
+        self._transaction_depth = 0
         if connection is not None:
             self._conn = connection
         else:
@@ -53,23 +31,21 @@ class DurableERPCommandEngine(ERPCommandEngine):
                 self._remote = True
             else:
                 self._conn = sqlite3.connect(str(self._db_path), check_same_thread=False)
-        self._conn.execute(
-            """
-            CREATE TABLE IF NOT EXISTS records (
-                repo TEXT NOT NULL,
-                record_id TEXT NOT NULL,
-                payload TEXT NOT NULL,
-                tenant_id TEXT NOT NULL DEFAULT 'legacy',
-                PRIMARY KEY (repo, record_id)
-            )
-            """
-        )
+        self._conn.execute("""CREATE TABLE IF NOT EXISTS records (
+            repo TEXT NOT NULL, record_id TEXT NOT NULL, payload TEXT NOT NULL,
+            tenant_id TEXT NOT NULL DEFAULT 'legacy', PRIMARY KEY (repo, record_id)
+        )""")
         self._conn.commit()
         columns = {row[1] for row in self._conn.execute("PRAGMA table_info(records)").fetchall()}
         if "tenant_id" not in columns:
             self._conn.execute("ALTER TABLE records ADD COLUMN tenant_id TEXT NOT NULL DEFAULT 'legacy'")
             self._conn.commit()
         self._reload()
+
+    @property
+    def connection(self):
+        """Underlying DB handle for components sharing this transaction boundary."""
+        return self._conn
 
     def _repo_attrs(self) -> dict:
         return {name: value for name, value in self.__dict__.items() if hasattr(value, "_data")}
@@ -80,8 +56,9 @@ class DurableERPCommandEngine(ERPCommandEngine):
                 repo._data.clear()
                 repo._tenant_by_id.clear()
             self._processed.clear()
-        cur = self._conn.execute("SELECT repo, record_id, payload, tenant_id FROM records")
-        for repo_name, record_id, payload, tenant_id in cur.fetchall():
+        for repo_name, record_id, payload, tenant_id in self._conn.execute(
+            "SELECT repo, record_id, payload, tenant_id FROM records"
+        ).fetchall():
             value = deserialize_value(json.loads(payload))
             if repo_name == "_processed":
                 self._processed[record_id] = value
@@ -92,13 +69,15 @@ class DurableERPCommandEngine(ERPCommandEngine):
                 repo._tenant_by_id[record_id] = tenant_id
 
     def transaction(self, fn):
+        # Dispatch calls transaction() too. When a sync upload supplies this
+        # method as its transaction runner, nested calls must participate in
+        # the outer transaction rather than committing independently.
+        if self._transaction_depth:
+            return fn()
         with self._lock:
             began = False
+            self._transaction_depth = 1
             try:
-                # Serialize writers at the database boundary. Plain BEGIN lets
-                # two workers take stale snapshots and later overwrite each
-                # other; BEGIN IMMEDIATE acquires the SQLite/libSQL write lock
-                # before we reload state.
                 for attempt in range(5):
                     try:
                         self._conn.execute("BEGIN IMMEDIATE")
@@ -110,18 +89,12 @@ class DurableERPCommandEngine(ERPCommandEngine):
                         time.sleep(0.05 * (attempt + 1))
                 if not began:
                     raise RuntimeError("unable to begin durable transaction")
-                # In remote mode, refresh the authoritative SQL state before
-                # taking the in-memory rollback snapshot. This prevents a
-                # failed command on one worker from restoring stale state.
                 if self._remote:
                     self._reload(clear=True)
-
                 before_repos = self._repo_attrs()
                 before = {name: dict(repo._data) for name, repo in before_repos.items()}
                 before_tenants = {name: dict(repo._tenant_by_id) for name, repo in before_repos.items()}
                 processed_before = dict(self._processed)
-
-                # completion.py supplies the atomic in-memory rollback.
                 result = super().transaction(fn)
                 self._persist_changes(before, processed_before, commit=False)
                 self._conn.commit()
@@ -134,6 +107,8 @@ class DurableERPCommandEngine(ERPCommandEngine):
                         repo._tenant_by_id = dict(before_tenants.get(name, {}))
                     self._processed = dict(processed_before)
                 raise
+            finally:
+                self._transaction_depth = 0
 
     def _persist_changes(self, before: dict, processed_before: dict, commit: bool = True):
         cur = self._conn.cursor()
@@ -141,22 +116,17 @@ class DurableERPCommandEngine(ERPCommandEngine):
             old = before.get(name, {})
             for record_id, value in repo._data.items():
                 if record_id not in old or old[record_id] is not value:
-                    cur.execute(
-                        "INSERT OR REPLACE INTO records (repo, record_id, payload, tenant_id) VALUES (?, ?, ?, ?)",
-                        (name, record_id, json.dumps(serialize_value(value)), repo.tenant_of(record_id) or "legacy"),
-                    )
+                    cur.execute("INSERT OR REPLACE INTO records (repo, record_id, payload, tenant_id) VALUES (?, ?, ?, ?)",
+                                (name, record_id, json.dumps(serialize_value(value)), repo.tenant_of(record_id) or "legacy"))
         for name, old_repo in before.items():
             current_repo = self._repo_attrs().get(name)
-            if current_repo is None:
-                continue
-            for record_id in set(old_repo) - set(current_repo._data):
-                cur.execute("DELETE FROM records WHERE repo = ? AND record_id = ?", (name, record_id))
+            if current_repo is not None:
+                for record_id in set(old_repo) - set(current_repo._data):
+                    cur.execute("DELETE FROM records WHERE repo = ? AND record_id = ?", (name, record_id))
         for command_id, value in self._processed.items():
             if command_id not in processed_before or processed_before[command_id] is not value:
-                cur.execute(
-                    "INSERT OR REPLACE INTO records (repo, record_id, payload, tenant_id) VALUES (?, ?, ?, ?)",
-                    ("_processed", command_id, json.dumps(serialize_value(value)), command_id.split(":", 1)[0] if ":" in command_id else "legacy"),
-                )
+                cur.execute("INSERT OR REPLACE INTO records (repo, record_id, payload, tenant_id) VALUES (?, ?, ?, ?)",
+                            ("_processed", command_id, json.dumps(serialize_value(value)), command_id.split(":", 1)[0] if ":" in command_id else "legacy"))
         for command_id in set(processed_before) - set(self._processed):
             cur.execute("DELETE FROM records WHERE repo = ? AND record_id = ?", ("_processed", command_id))
         if commit:

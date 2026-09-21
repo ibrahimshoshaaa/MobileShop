@@ -198,3 +198,132 @@ def test_financial_command_rolls_back_all_state_on_late_failure():
     assert e._available_qty("b1", "p1") == before_stock
     assert e.expenses.all() == []
     assert e.ledger.all() == [e.ledger.get("opening")]
+
+
+def test_maintenance_part_usage_is_branch_scoped_and_validated():
+    e = seed()
+    ticket = e.create_maintenance_ticket(
+        ctx("maintenance-branch", {"maintenance.create"}), "c1", "Phone", "Broken"
+    )
+    foreign = CommandContext(
+        "foreign-part", "u1", "b2", frozenset({"maintenance.parts"}), "tenant-a"
+    )
+    with pytest.raises(DomainError) as exc:
+        e.use_maintenance_part(foreign, ticket.id, "p1", Decimal("1"), Decimal("100"))
+    assert exc.value.code == "BRANCH_ACCESS_DENIED"
+
+
+def test_single_return_command_cannot_repeat_same_sale_item():
+    e = seed()
+    sale = e.create_sale(CreateSaleCommand(
+        ctx("duplicate-return-sale", {"sales.create"}), None,
+        ({"product_id": "p1", "quantity": 1, "unit_price": Decimal("100")},),
+        ({"wallet_id": "cash", "amount": Decimal("100")},),
+    ))
+    with pytest.raises(DomainError) as exc:
+        e.return_sale(
+            ctx("duplicate-return", {"sales.return"}), sale.id,
+            [
+                {"sale_item_id": sale.items[0].id, "quantity": Decimal("1")},
+                {"sale_item_id": sale.items[0].id, "quantity": Decimal("1")},
+            ],
+            "cash",
+        )
+    assert exc.value.code == "INVALID_RETURN"
+
+
+def test_sale_cannot_be_voided_after_a_return():
+    e = seed()
+    sale = e.create_sale(CreateSaleCommand(
+        ctx("void-return-sale", {"sales.create"}), None,
+        ({"product_id": "p1", "quantity": 1, "unit_price": Decimal("100")},),
+        ({"wallet_id": "cash", "amount": Decimal("100")},),
+    ))
+    e.return_sale(
+        ctx("void-return", {"sales.return"}), sale.id,
+        [{"sale_item_id": sale.items[0].id, "quantity": Decimal("1")}],
+        "cash",
+    )
+    with pytest.raises(DomainError) as exc:
+        e.void_sale(ctx("void-after-return", {"sales.void"}), sale.id)
+    assert exc.value.code == "INVALID_VOID"
+
+def test_installment_down_payment_cannot_overdraw_wallet():
+    e = seed()
+    sale = e.create_sale(CreateSaleCommand(
+        ctx("credit-overdraw", {"sales.create"}), "c1",
+        ({"product_id": "p1", "quantity": 1, "unit_price": Decimal("200")},), (),
+    ))
+    with pytest.raises(DomainError) as exc:
+        e.create_installment_plan(
+            ctx("plan-overdraw", {"installments.create"}), sale.id, "c1",
+            Decimal("6000"), Decimal("10"), 2, down_payment_wallet_id="cash",
+        )
+    assert exc.value.code == "INSUFFICIENT_WALLET_BALANCE"
+
+
+def test_installment_collection_cannot_overdraw_wallet():
+    e = seed()
+    sale = e.create_sale(CreateSaleCommand(
+        ctx("credit-collect-overdraw", {"sales.create"}), "c1",
+        ({"product_id": "p1", "quantity": 1, "unit_price": Decimal("200")},), (),
+    ))
+    plan = e.create_installment_plan(
+        ctx("collect-plan-overdraw", {"installments.create"}), sale.id, "c1",
+        Decimal("0"), Decimal("10"), 2,
+    )
+    with pytest.raises(DomainError) as exc:
+        e.collect_installment(
+            ctx("collect-overdraw", {"installments.collect"}), plan.id, Decimal("5000"), "cash",
+        )
+    assert exc.value.code == "INSUFFICIENT_WALLET_BALANCE"
+
+def test_customer_transfer_moves_value_in_correct_direction_and_balances():
+    e = seed()
+    e.ledger.create("digital-opening", LedgerEntry(
+        "digital-opening", "b1", "wallet:digital", "OPENING", debit=Decimal("1000")
+    ))
+    e.transfer_customer(
+        ctx("cash-to-digital", {"transfer.create"}), "cash", "digital", Decimal("100"), Decimal("1"),
+    )
+    assert e._balance("cash") == Decimal("5101.00")
+    assert e._balance("digital") == Decimal("900.00")
+    assert e.ledger_transaction_totals("cash-to-digital") == (Decimal("100.00"), Decimal("100.00"))
+    e.transfer_customer(
+        ctx("digital-to-cash", {"transfer.create"}), "digital", "cash", Decimal("100"), Decimal("1"),
+    )
+    assert e._balance("digital") == Decimal("1000.00")
+    assert e._balance("cash") == Decimal("5000.00")
+    assert e.ledger_transaction_totals("digital-to-cash") == (Decimal("101.00"), Decimal("101.00"))
+
+def test_product_update_rejects_immutable_or_duplicate_fields():
+    e = seed()
+    e.products.create("p2", Product("p2", "Other", "SKU2", "PHONE_NEW"))
+    with pytest.raises(DomainError) as exc:
+        e.update_product(ctx("bad-product-field", {"products.edit"}), "p1", id="evil")
+    assert exc.value.code == "INVALID_INPUT"
+    with pytest.raises(DomainError) as exc:
+        e.update_product(ctx("duplicate-sku", {"products.edit"}), "p1", sku="SKU2")
+    assert exc.value.code == "DUPLICATE_PRODUCT"
+
+
+def test_exchange_is_atomic_when_new_sale_fails():
+    e = seed()
+    sale = e.create_sale(CreateSaleCommand(
+        ctx("exchange-old", {"sales.create"}), None,
+        ({"product_id": "p1", "quantity": 1, "unit_price": Decimal("100")},),
+        ({"wallet_id": "cash", "amount": Decimal("100")},),
+    ))
+    before_cash=e._balance("cash")
+    before_stock=e._available_qty("b1","p1")
+    with pytest.raises(DomainError):
+        e.exchange_sale(
+            ctx("exchange", {"sales.return", "sales.create"}),
+            sale.id,
+            [{"sale_item_id": sale.items[0].id, "quantity": Decimal("1")}],
+            [{"product_id": "missing", "quantity": Decimal("1"), "unit_price": Decimal("100")}],
+            (),
+        )
+    assert e._balance("cash")==before_cash
+    assert e._available_qty("b1","p1")==before_stock
+    assert e.returns.all()==[]

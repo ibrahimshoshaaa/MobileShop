@@ -28,10 +28,11 @@ class ApiError(AppError):
 
 
 class ApiClient:
-    def __init__(self, base_url: str = DEFAULT_BASE_URL, token: str = DEFAULT_TOKEN, branch_id: str = DEFAULT_BRANCH_ID):
+    def __init__(self, base_url: str = DEFAULT_BASE_URL, token: str = DEFAULT_TOKEN, branch_id: str = DEFAULT_BRANCH_ID, timeout: float = 10):
         self.base_url = base_url.rstrip("/")
         self.token = token
         self.branch_id = branch_id
+        self.timeout = timeout
 
     def _request(self, method: str, path: str, body: dict | None = None) -> dict:
         url = f"{self.base_url}{path}"
@@ -40,7 +41,7 @@ class ApiClient:
         req.add_header("Authorization", f"Bearer {self.token}")
         req.add_header("Content-Type", "application/json")
         try:
-            with urllib.request.urlopen(req, timeout=10) as resp:
+            with urllib.request.urlopen(req, timeout=self.timeout) as resp:
                 return json.loads(resp.read().decode("utf-8"))
         except urllib.error.HTTPError as e:
             try:

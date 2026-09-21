@@ -33,9 +33,9 @@ def main() -> int:
         firebase_admin.initialize_app(credentials.Certificate(service_account))
 
     app = firebase_admin.get_app()
-    service_account_info = json.loads(raw)
+    service_account_data = json.loads(raw)
     google_cred = service_account.Credentials.from_service_account_info(
-        service_account_info,
+        service_account_data,
         scopes=["https://www.googleapis.com/auth/cloud-platform"],
     )
     google_cred.refresh(Request())

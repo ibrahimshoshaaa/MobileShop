@@ -205,11 +205,28 @@ class SyncProtocol:
                 )
                 self.db.commit()
                 results.append({"command_id": command_id, "status": status, "error_code": code})
-            except Exception:
+            except Exception as exc:
                 try:
                     self.db.rollback()
                 except Exception:
                     logger.debug("sync rollback failed", exc_info=True)
+
+                # Two workers can both observe an empty receipt before one wins
+                # the unique claim. If the loser hits the PRIMARY KEY constraint,
+                # the winner has already committed the authoritative result; replay
+                # it instead of manufacturing a RETRYABLE failure.
+                if "UNIQUE" in str(exc).upper() or "CONSTRAINT" in str(exc).upper():
+                    row = self._read_receipt(tenant_id, branch_id, command_id)
+                    if row:
+                        if row[3] and row[3] != request_hash:
+                            results.append({
+                                "command_id": command_id,
+                                "status": "CONFLICT",
+                                "error_code": "IDEMPOTENCY_KEY_REUSE",
+                            })
+                        else:
+                            results.append(self._replay_result(command_id, row))
+                        continue
 
                 # Do not preserve a PROCESSING claim after an unexpected
                 # executor failure. A retry must be allowed to execute again.

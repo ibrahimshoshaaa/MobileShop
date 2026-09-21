@@ -21,4 +21,5 @@ jobs:
           STAGING_API_URL: ${{ secrets.STAGING_API_URL }}
           STAGING_BEARER_TOKEN: ${{ secrets.STAGING_BEARER_TOKEN }}
           STAGING_BRANCH_ID: ${{ secrets.STAGING_BRANCH_ID }}
+          PYTHONPATH: .
         run: python scripts/staging_client_e2e.py

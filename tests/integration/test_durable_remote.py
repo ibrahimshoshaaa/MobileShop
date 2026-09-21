@@ -51,6 +51,41 @@ def test_remote_mode_refreshes_shared_sql_state_before_transaction(tmp_path):
         b.close()
 
 
+def test_persistence_cannot_reassign_existing_record_to_another_tenant(tmp_path):
+    db = tmp_path / "tenant-reassignment.db"
+    a = DurableERPCommandEngine(connection=sqlite3.connect(db))
+    b = DurableERPCommandEngine(connection=sqlite3.connect(db))
+    try:
+        a.transaction(lambda: a.create_product(
+            _ctx("tenant-a-product", "tenant-a"),
+            Product("p-tenant-a", "Tenant A Product", "TENANT-A-SKU", "ACCESSORY"),
+        ))
+
+        # A second tenant must not be able to see or mutate the existing record.
+        from backend.functions.repositories.generic import set_tenant_scope, reset_tenant_scope
+        token = set_tenant_scope("tenant-b")
+        try:
+            assert b.products.get("p-tenant-a") is None
+            try:
+                b.products.update("p-tenant-a", Product(
+                    "p-tenant-a", "Tenant B Product", "TENANT-B-SKU", "ACCESSORY"
+                ))
+            except KeyError:
+                pass
+            else:
+                raise AssertionError("cross-tenant update must be rejected")
+        finally:
+            reset_tenant_scope(token)
+
+        # Reload from the durable boundary and prove the owner is unchanged.
+        b.transaction(lambda: None)
+        assert b.products.tenant_of("p-tenant-a") == "tenant-a"
+        assert b.products.get("p-tenant-a").name == "Tenant A Product"
+    finally:
+        a.close()
+        b.close()
+
+
 def test_remote_persistence_keeps_tenant_metadata(tmp_path):
     db = tmp_path / "tenant.db"
     a = DurableERPCommandEngine(connection=sqlite3.connect(db))

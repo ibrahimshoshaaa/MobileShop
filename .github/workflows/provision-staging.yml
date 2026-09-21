@@ -1,6 +1,8 @@
 name: Provision staging
 
 on:
+  push:
+    branches: ["release/production-gates-audit"]
   workflow_dispatch:
 
 jobs:

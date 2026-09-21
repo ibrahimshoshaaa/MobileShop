@@ -99,6 +99,11 @@ class SyncProtocol:
                 "SELECT status,result_json,error_code,request_hash FROM sync_receipts WHERE tenant_id=? AND branch_id=? AND command_id=?",
                 (tenant_id, branch_id, command_id),
             ).fetchone()
+            # End any read transaction before competing workers attempt the
+            # write-side idempotency claim. This is especially important for
+            # remote Hrana connections, where a lingering interactive stream
+            # can otherwise turn contention into SQLITE_BUSY.
+            self.db.commit()
             if row:
                 if row[3] and row[3] != request_hash:
                     results.append({"command_id": command_id, "status": "CONFLICT", "error_code": "IDEMPOTENCY_KEY_REUSE"})

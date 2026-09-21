@@ -12,7 +12,7 @@ from shared.models.erp import (
 
 
 def ctx(cid, perms, branch="b1", tenant="tenant-a"):
-    return CommandContext(cid, "u1", branch, frozenset(perms), tenant)
+    return CommandContext(cid, "u1", branch, frozenset(perms), "default")
 
 
 def base_engine():

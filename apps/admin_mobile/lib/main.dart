@@ -374,7 +374,7 @@ class SettingsPage extends StatelessWidget {
       const SizedBox(height: 6),
       const Text('تحكم في الحساب والمزامنة والأمان.', style: TextStyle(color: Colors.black54)),
       const SizedBox(height: 18),
-      Card(child: SwitchListTile(
+      const Card(child: SwitchListTile(
         value: false,
         onChanged: (_) {},
         title: const Text('Online', style: TextStyle(fontWeight: FontWeight.bold)),
@@ -382,12 +382,12 @@ class SettingsPage extends StatelessWidget {
         secondary: const Icon(Icons.cloud_outlined),
       )),
       const SizedBox(height: 10),
-      Card(child: Column(children: [
-        ListTile(leading: const Icon(Icons.account_circle_outlined), title: const Text('حساب الشركة'), subtitle: const Text('تسجيل الدخول وربط الفروع'), trailing: const Icon(Icons.chevron_left)),
+      const Card(child: Column(children: [
+        const ListTile(leading: Icon(Icons.account_circle_outlined), title: const Text('حساب الشركة'), subtitle: const Text('تسجيل الدخول وربط الفروع'), trailing: const Icon(Icons.chevron_left)),
         const Divider(height: 1),
-        ListTile(leading: const Icon(Icons.backup_outlined), title: const Text('النسخ الاحتياطي'), subtitle: const Text('إعدادات النسخ والاسترجاع'), trailing: const Icon(Icons.chevron_left)),
+        const ListTile(leading: Icon(Icons.backup_outlined), title: const Text('النسخ الاحتياطي'), subtitle: const Text('إعدادات النسخ والاسترجاع'), trailing: const Icon(Icons.chevron_left)),
         const Divider(height: 1),
-        ListTile(leading: const Icon(Icons.security_outlined), title: const Text('الأمان والصلاحيات'), subtitle: const Text('المستخدمون والأدوار وسجل التدقيق'), trailing: const Icon(Icons.chevron_left)),
+        const ListTile(leading: Icon(Icons.security_outlined), title: const Text('الأمان والصلاحيات'), subtitle: const Text('المستخدمون والأدوار وسجل التدقيق'), trailing: const Icon(Icons.chevron_left)),
       ])),
     ],
   );

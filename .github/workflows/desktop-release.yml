@@ -1,0 +1,76 @@
+name: Desktop Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Release version, e.g. 1.0.0"
+        required: true
+        default: "1.0.0"
+  push:
+    tags:
+      - "v*.*.*"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: desktop-release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build-windows:
+    name: Build Windows Desktop
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install build dependencies
+        shell: pwsh
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install pyinstaller
+
+      - name: Compile Python sources
+        shell: pwsh
+        run: python -m compileall -q apps/desktop backend shared
+
+      - name: Build Desktop executable
+        shell: pwsh
+        run: |
+          pyinstaller --noconfirm --clean --windowed --name MobileShopERP --paths . --paths apps/desktop --hidden-import backend.functions.persistence.sqlite_repository apps/desktop/app.py
+
+      - name: Smoke test packaged executable
+        shell: pwsh
+        run: |
+          if (-not (Test-Path "dist/MobileShopERP/MobileShopERP.exe")) {
+            throw "Desktop executable was not produced."
+          }
+
+      - name: Package portable Windows build
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path release | Out-Null
+          Compress-Archive -Path "dist/MobileShopERP/*" -DestinationPath "release/MobileShopERP-windows-x64.zip" -Force
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: mobile-shop-desktop-windows-x64
+          path: release/MobileShopERP-windows-x64.zip
+          retention-days: 30
+
+      - name: Publish GitHub Release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true
+          files: release/MobileShopERP-windows-x64.zip

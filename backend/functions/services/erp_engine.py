@@ -378,6 +378,8 @@ class ERPCommandEngine:
             if s.branch_id!=_ctx(command).branch_id: raise DomainError('BRANCH_ACCESS_DENIED','الفاتورة خارج الفرع.',{})
             if s.customer_id!=customer_id: raise DomainError('INVALID_INPUT','العميل لا يطابق عميل الفاتورة.',{})
             if s.status=='VOIDED': raise DomainError('INVALID_INPUT','لا يمكن تقسيط فاتورة ملغاة.',{})
+            if any(existing.sale_id==sale_id for existing in self.installments.all()):
+                raise DomainError('INSTALLMENT_ALREADY_EXISTS','الفاتورة مرتبطة بخطة تقسيط بالفعل.',{'sale_id':sale_id})
             if self.customers.get(customer_id) is None: raise DomainError('NOT_FOUND','العميل غير موجود.',{'customer_id':customer_id})
             paid=sum((p.amount for p in s.payments),D0)
             receivable=money(s.total-paid)

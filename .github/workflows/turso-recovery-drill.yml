@@ -31,10 +31,13 @@ jobs:
         run: |
           set -euo pipefail
           export PATH="$HOME/.turso/bin:$PATH"
-          turso auth login --token "$TURSO_API_TOKEN"
           timestamp="$(date -u -d '2 minutes ago' '+%Y-%m-%dT%H:%M:%SZ')"
           target="mobile-shop-recovery-${GITHUB_RUN_ID}"
+          cleanup() {
+            turso db destroy "$target" --org "$TURSO_ORG" --yes >/dev/null 2>&1 || true
+          }
+          trap cleanup EXIT
+          export TURSO_API_TOKEN
           turso db create "$target" --org "$TURSO_ORG" --from-db "$TURSO_SOURCE_DB" --timestamp "$timestamp"
           turso db shell "$target" "PRAGMA integrity_check;" | grep -q "ok"
-          turso db destroy "$target" --org "$TURSO_ORG" --yes
           echo "TURSO_PITR_RECOVERY_OK"

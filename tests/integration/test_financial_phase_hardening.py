@@ -257,7 +257,7 @@ def test_installment_down_payment_cannot_overdraw_wallet():
     with pytest.raises(DomainError) as exc:
         e.create_installment_plan(
             ctx("plan-overdraw", {"installments.create"}), sale.id, "c1",
-            Decimal("6000"), Decimal("10"), 2, down_payment_wallet_id="cash",
+            Decimal("5001"), Decimal("10"), 2, down_payment_wallet_id="cash",
         )
     assert exc.value.code == "INSUFFICIENT_WALLET_BALANCE"
 

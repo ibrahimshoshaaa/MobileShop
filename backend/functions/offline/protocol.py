@@ -17,13 +17,7 @@ _RETRYABLE_CODES = {"TEMPORARY_UNAVAILABLE", "DB_BUSY", "NETWORK_ERROR"}
 
 
 class SyncProtocol:
-    """Server-side offline sync protocol.
-
-    Upload is idempotent by (tenant, branch, command_id). Every successful
-    command becomes an append-only event with a monotonic cursor. Download is
-    cursor-based and tenant/branch filtered. A stale expected_version is a
-    conflict, never an implicit overwrite.
-    """
+    """Server-side offline sync protocol."""
 
     def __init__(self, path: str | Path = "sync_protocol.db", connection=None):
         if connection is not None:
@@ -99,10 +93,6 @@ class SyncProtocol:
                 "SELECT status,result_json,error_code,request_hash FROM sync_receipts WHERE tenant_id=? AND branch_id=? AND command_id=?",
                 (tenant_id, branch_id, command_id),
             ).fetchone()
-            # End any read transaction before competing workers attempt the
-            # write-side idempotency claim. This is especially important for
-            # remote Hrana connections, where a lingering interactive stream
-            # can otherwise turn contention into SQLITE_BUSY.
             self.db.commit()
             if row:
                 if row[3] and row[3] != request_hash:
@@ -119,9 +109,6 @@ class SyncProtocol:
             claimed = False
             for attempt in range(5):
                 try:
-                    # Claim the command before executing it. The claim is committed
-                    # separately so two API workers cannot both execute the same
-                    # command before either one writes its final receipt.
                     self.db.execute(
                         "INSERT INTO sync_receipts(tenant_id,branch_id,command_id,status,request_hash,claimed_at) VALUES(?,?,?,?,?,?)",
                         (tenant_id, branch_id, command_id, "PROCESSING", request_hash, time.time()),
@@ -133,11 +120,14 @@ class SyncProtocol:
                     message = str(exc)
                     is_unique = isinstance(exc, sqlite3.IntegrityError) or "UNIQUE constraint failed" in message
                     is_busy = "SQLITE_BUSY" in message or "database is locked" in message
+                    # Failed SQLite writes can keep the transaction open and hold
+                    # the database lock. Always release that transaction before
+                    # retrying or reading the competing worker's receipt.
+                    try:
+                        self.db.rollback()
+                    except Exception:
+                        pass
                     if is_busy:
-                        # Turso/Hrana can roll back the interactive transaction
-                        # when concurrent writers contend. The claim is not ours,
-                        # so retry the INSERT after the competing writer has had
-                        # a chance to commit.
                         if attempt < 4:
                             time.sleep(0.05 * (attempt + 1))
                             continue
@@ -145,9 +135,6 @@ class SyncProtocol:
                     if not is_unique:
                         raise
 
-                    # SQLite raises IntegrityError; Turso/libSQL Hrana can surface
-                    # UNIQUE constraint conflicts as ValueError. Treat both as
-                    # the same cross-worker idempotency race.
                     row = None
                     for read_attempt in range(8):
                         try:
@@ -155,10 +142,15 @@ class SyncProtocol:
                                 "SELECT status,result_json,error_code,request_hash,claimed_at FROM sync_receipts WHERE tenant_id=? AND branch_id=? AND command_id=?",
                                 (tenant_id, branch_id, command_id),
                             ).fetchone()
+                            self.db.commit()
                             break
                         except Exception as read_exc:
                             read_message = str(read_exc)
                             read_busy = "SQLITE_BUSY" in read_message or "database is locked" in read_message
+                            try:
+                                self.db.rollback()
+                            except Exception:
+                                pass
                             if not read_busy or read_attempt == 7:
                                 raise
                             time.sleep(0.05 * (read_attempt + 1))
@@ -174,8 +166,6 @@ class SyncProtocol:
                     break
 
             if not claimed:
-                # A matching receipt was found during the race and the result
-                # was already appended above.
                 continue
 
             try:
@@ -201,9 +191,10 @@ class SyncProtocol:
                 self.db.commit()
                 results.append({"command_id": command_id, "status": status, "error_code": code})
             except Exception:
-                # Keep the receipt retryable after infrastructure failure; the
-                # executor may already have committed in another system, so callers
-                # must use the ERP command idempotency key when retrying.
+                try:
+                    self.db.rollback()
+                except Exception:
+                    pass
                 self.db.execute(
                     "UPDATE sync_receipts SET status='RETRYABLE', error_code='TEMPORARY_UNAVAILABLE', claimed_at=NULL WHERE tenant_id=? AND branch_id=? AND command_id=?",
                     (tenant_id, branch_id, command_id),

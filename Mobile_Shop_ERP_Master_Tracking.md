@@ -238,8 +238,10 @@
 
 ## الحالة الحالية
 
-**Branch:** `feat/financial-accounting-invariants`  
-**CI:** 🟢 PR #16 — Python + Flutter analyze + security passed  
+**PR #17:** Desktop Online operational workflows — customers, suppliers, expenses, installments, maintenance; specialized scoped reads for installment payments and maintenance parts. CI + security + production audit green. PR #17 is open and not merged.
+
+**Branch:** `feat/desktop-online-operational-workflows`  
+**CI:** 🟢 PR #17 — Python + Flutter analyze + security passed  
 **Tests:** 🟢 150 Python tests passed، 2 warnings  
 **Production audit:** 🟢 passed  
 **Financial Phase:** 🟢 مكتملة برمجياً على الفرع؛ يلزم دمج PR #16 فقط بعد المراجعة النهائية  

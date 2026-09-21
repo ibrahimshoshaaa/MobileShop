@@ -119,7 +119,7 @@ class SyncProtocol:
                     (tenant_id, branch_id, command_id, "PROCESSING", request_hash, time.time()),
                 )
                 self.db.commit()
-            except Exception:
+            except sqlite3.IntegrityError:
                 row = self.db.execute(
                     "SELECT status,result_json,error_code,request_hash,claimed_at FROM sync_receipts WHERE tenant_id=? AND branch_id=? AND command_id=?",
                     (tenant_id, branch_id, command_id),

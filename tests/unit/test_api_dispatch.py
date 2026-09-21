@@ -49,7 +49,7 @@ def test_dispatch_update_product_renames_and_changes_price():
     dispatch(e, "createProduct", ctx("p1"), product={"name": "شاحن", "sku": "SKU-1", "product_type": "ACCESSORY", "selling_price": "50"})
     updated = dispatch(e, "updateProduct", ctx("p2"), product_id="p1", changes={"name": "شاحن سريع", "selling_price": "75"})
     assert updated.name == "شاحن سريع"
-    assert str(updated.selling_price) == "75"
+    assert str(updated.selling_price) == "75.00"
     assert e.products.get("p1").name == "شاحن سريع"
 
 

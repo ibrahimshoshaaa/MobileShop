@@ -252,12 +252,12 @@ def test_installment_down_payment_cannot_overdraw_wallet():
     e = seed()
     sale = e.create_sale(CreateSaleCommand(
         ctx("credit-overdraw", {"sales.create"}), "c1",
-        ({"product_id": "p1", "quantity": 1, "unit_price": Decimal("200")},), (),
+        ({"product_id": "p1", "quantity": 1, "unit_price": Decimal("6000")},), (),
     ))
     with pytest.raises(DomainError) as exc:
         e.create_installment_plan(
             ctx("plan-overdraw", {"installments.create"}), sale.id, "c1",
-            Decimal("100"), Decimal("10"), 2, down_payment_wallet_id="cash",
+            Decimal("6000"), Decimal("10"), 2, down_payment_wallet_id="cash",
         )
     assert exc.value.code == "INSUFFICIENT_WALLET_BALANCE"
 
@@ -266,7 +266,7 @@ def test_installment_collection_cannot_overdraw_wallet():
     e = seed()
     sale = e.create_sale(CreateSaleCommand(
         ctx("credit-collect-overdraw", {"sales.create"}), "c1",
-        ({"product_id": "p1", "quantity": 1, "unit_price": Decimal("200")},), (),
+        ({"product_id": "p1", "quantity": 1, "unit_price": Decimal("6000")},), (),
     ))
     plan = e.create_installment_plan(
         ctx("collect-plan-overdraw", {"installments.create"}), sale.id, "c1",

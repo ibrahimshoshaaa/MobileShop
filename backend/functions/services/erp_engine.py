@@ -518,12 +518,17 @@ class ERPCommandEngine:
         with self._lock:
             self._auth(_ctx(command),'maintenance.parts'); old=self._idem(_ctx(command))
             if old:return old
-            q=dec(quantity); c=money(cost); t=self.maintenance.get(ticket_id)
+            q=dec(quantity); t=self.maintenance.get(ticket_id)
             if not t:raise DomainError('NOT_FOUND','طلب الصيانة غير موجود.',{})
             if t.branch_id!=_ctx(command).branch_id:raise DomainError('BRANCH_ACCESS_DENIED','طلب الصيانة خارج الفرع.',{})
-            if q<=0 or c<0:raise DomainError('INVALID_INPUT','الكمية والتكلفة غير صحيحتين.',{})
+            if t.status in {'DELIVERED','CANCELLED'}:raise DomainError('INVALID_INPUT','لا يمكن استخدام قطع على طلب مغلق.',{})
+            if not self.products.get(product_id):raise DomainError('NOT_FOUND','المنتج غير موجود.',{'product_id':product_id})
+            if q<=0:raise DomainError('INVALID_INPUT','الكمية يجب أن تكون موجبة.',{})
             if self._available_qty(t.branch_id,product_id)<q:raise DomainError('INSUFFICIENT_STOCK','المخزون غير كافٍ.',{})
-            part={'id':_ctx(command).command_id,'ticket_id':ticket_id,'product_id':product_id,'quantity':q,'cost':c}; self._put(self.maintenance_parts,part); self._put(self.stock,StockMovement(f'{part["id"]}:stock',t.branch_id,product_id,-q,'MAINTENANCE_USE',ticket_id,None,c)); nt=replace(t,parts_cost=money(t.parts_cost+q*c)); self.maintenance.update(t.id,nt); self._audit(_ctx(command),'USE_MAINTENANCE_PART',ticket_id,{'product_id':product_id,'quantity':str(q)}); self._processed[_ctx(command).idempotency_key]=part; return part
+            # Inventory valuation is server-authoritative: maintenance cannot
+            # inflate/deflate COGS by supplying an arbitrary client-side cost.
+            c=self._avg_cost(t.branch_id,product_id)
+            part={'id':_ctx(command).command_id,'ticket_id':ticket_id,'product_id':product_id,'quantity':q,'cost':c}; self._put(self.maintenance_parts,part); self._put(self.stock,StockMovement(f'{part["id"]}:stock',t.branch_id,product_id,-q,'MAINTENANCE_USE',ticket_id,None,c)); nt=replace(t,parts_cost=money(t.parts_cost+q*c)); self.maintenance.update(t.id,nt); self._audit(_ctx(command),'USE_MAINTENANCE_PART',ticket_id,{'product_id':product_id,'quantity':str(q),'cost':str(c)}); self._processed[_ctx(command).idempotency_key]=part; return part
 
     def reopen_day(self,command,closing_date):
         with self._lock:

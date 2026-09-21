@@ -106,11 +106,31 @@ class SyncProtocol:
                 continue
 
             try:
+                # Claim the command before executing it. The claim is committed
+                # separately so two API workers cannot both execute the same
+                # command before either one writes its final receipt.
+                self.db.execute(
+                    "INSERT INTO sync_receipts(tenant_id,branch_id,command_id,status,request_hash) VALUES(?,?,?,?,?)",
+                    (tenant_id, branch_id, command_id, "PROCESSING", request_hash),
+                )
+                self.db.commit()
+            except Exception:
+                row = self.db.execute(
+                    "SELECT status,result_json,error_code,request_hash FROM sync_receipts WHERE tenant_id=? AND branch_id=? AND command_id=?",
+                    (tenant_id, branch_id, command_id),
+                ).fetchone()
+                if row and row[3] == request_hash:
+                    results.append({"command_id": command_id, "status": row[0], "result": json.loads(row[1]) if row[1] else None, "error_code": row[2], "retryable": row[0] == "PROCESSING"})
+                else:
+                    results.append({"command_id": command_id, "status": "CONFLICT", "error_code": "IDEMPOTENCY_KEY_REUSE"})
+                continue
+
+            try:
                 result = executor(envelope)
                 result_json = json.dumps(result, default=str, ensure_ascii=False, sort_keys=True)
                 self.db.execute(
-                    "INSERT INTO sync_receipts(tenant_id,branch_id,command_id,status,result_json,request_hash) VALUES(?,?,?,?,?,?)",
-                    (tenant_id, branch_id, command_id, "APPLIED", result_json, request_hash),
+                    "UPDATE sync_receipts SET status='APPLIED', result_json=?, error_code=NULL WHERE tenant_id=? AND branch_id=? AND command_id=?",
+                    (result_json, tenant_id, branch_id, command_id),
                 )
                 self.db.execute(
                     "INSERT INTO sync_events(tenant_id,branch_id,command_id,event_type,payload_json) VALUES(?,?,?,?,?)",
@@ -122,15 +142,20 @@ class SyncProtocol:
                 code = exc.code
                 status = "CONFLICT" if code in _CONFLICT_CODES else "FAILED"
                 self.db.execute(
-                    "INSERT INTO sync_receipts(tenant_id,branch_id,command_id,status,error_code,request_hash) VALUES(?,?,?,?,?,?)",
-                    (tenant_id, branch_id, command_id, status, code, request_hash),
+                    "UPDATE sync_receipts SET status=?, error_code=?, result_json=NULL WHERE tenant_id=? AND branch_id=? AND command_id=?",
+                    (status, code, tenant_id, branch_id, command_id),
                 )
                 self.db.commit()
                 results.append({"command_id": command_id, "status": status, "error_code": code})
             except Exception:
-                # Do not persist an unknown infrastructure failure as a successful
-                # command. The client can retry safely because no receipt exists.
-                self.db.rollback()
+                # Keep the receipt retryable after infrastructure failure; the
+                # executor may already have committed in another system, so callers
+                # must use the ERP command idempotency key when retrying.
+                self.db.execute(
+                    "UPDATE sync_receipts SET status='RETRYABLE', error_code='TEMPORARY_UNAVAILABLE' WHERE tenant_id=? AND branch_id=? AND command_id=?",
+                    (tenant_id, branch_id, command_id),
+                )
+                self.db.commit()
                 results.append({"command_id": command_id, "status": "RETRYABLE", "error_code": "TEMPORARY_UNAVAILABLE"})
 
         cursor = self.db.execute(

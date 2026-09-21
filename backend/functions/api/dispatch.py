@@ -66,11 +66,6 @@ def dispatch(engine, name, command, **payload):
         changes = dict(payload.get('changes', {}))
         payload = ({'customer_id': entity_id, **changes} if name == 'updateCustomer'
                    else {'supplier_id': entity_id, **changes})
-    elif name in ('updateCustomer', 'updateSupplier'):
-        entity_id = payload.get('customer_id') if name == 'updateCustomer' else payload.get('supplier_id')
-        changes = dict(payload.get('changes', {}))
-        payload = ({'customer_id': entity_id, **changes} if name == 'updateCustomer'
-                   else {'supplier_id': entity_id, **changes})
     elif name == 'createWallet':
         # branch_id defaults to the caller's own branch and, even if a
         # client explicitly supplies a different one, create_wallet() in

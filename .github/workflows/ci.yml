@@ -26,6 +26,23 @@ jobs:
       - name: Run tests
         run: python -m pytest -q
 
+  clients:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: "3.24.5"
+          channel: stable
+      - name: Analyze admin mobile
+        working-directory: apps/admin_mobile
+        run: |
+          flutter pub get
+          flutter analyze
+      - name: Validate Python clients
+        run: |
+          python -m compileall -q apps/desktop apps/pos
+
   security:
     runs-on: ubuntu-latest
     steps:

@@ -6,7 +6,7 @@ from shared.models.erp import Customer, Product, Wallet
 
 
 def ctx(cid, perms):
-    return CommandContext(cid, "u1", "b1", frozenset(perms), "tenant-a")
+    return CommandContext(cid, "u1", "b1", frozenset(perms), "default")
 
 
 def seed():

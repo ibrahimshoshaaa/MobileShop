@@ -137,7 +137,8 @@ def install_completion(engine_cls):
             nt=replace(t,status='DELIVERED',final_cost=price,payment=pay); self.maintenance.update(t.id,nt)
             if pay:self._put(self.ledger,LedgerEntry(f'{ticket_id}:wallet',ctx.branch_id,f'wallet:{wallet_id}','MAINTENANCE_PAYMENT',debit=pay,reference_id=ticket_id))
             receivable=M(price-pay)
-            self._put(self.ledger,LedgerEntry(f'{ticket_id}:revenue',ctx.branch_id,'maintenance_revenue','MAINTENANCE',credit=price,reference_id=ticket_id))
+            if price:
+                self._put(self.ledger,LedgerEntry(f'{ticket_id}:revenue',ctx.branch_id,'maintenance_revenue','MAINTENANCE',credit=price,reference_id=ticket_id))
             if receivable and t.customer_id:
                 self._put(self.ledger,LedgerEntry(f'{ticket_id}:receivable',ctx.branch_id,f'customer:{t.customer_id}','MAINTENANCE_RECEIVABLE',debit=receivable,reference_id=ticket_id))
             if t.parts_cost:

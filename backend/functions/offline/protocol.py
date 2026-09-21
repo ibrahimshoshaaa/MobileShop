@@ -155,12 +155,12 @@ class SyncProtocol:
                                 raise
                             time.sleep(0.05 * (read_attempt + 1))
                     if row and row[3] == request_hash:
-                        if row[0] == "PROCESSING" and row[4] and time.time() - float(row[4]) > 60:
-                            self.db.execute("DELETE FROM sync_receipts WHERE tenant_id=? AND branch_id=? AND command_id=?", (tenant_id, branch_id, command_id))
-                            self.db.commit()
-                        else:
-                            results.append({"command_id": command_id, "status": row[0], "result": json.loads(row[1]) if row[1] else None, "error_code": row[2], "retryable": row[0] == "PROCESSING"})
-                            break
+                        # Never auto-expire PROCESSING claims. An age-based reclaim
+                        # can overlap a still-running executor and execute the same
+                        # financial command twice. Recovery must be an explicit
+                        # operational action after the original worker is confirmed dead.
+                        results.append({"command_id": command_id, "status": row[0], "result": json.loads(row[1]) if row[1] else None, "error_code": row[2], "retryable": row[0] == "PROCESSING"})
+                        break
                     else:
                         results.append({"command_id": command_id, "status": "CONFLICT", "error_code": "IDEMPOTENCY_KEY_REUSE"})
                     break

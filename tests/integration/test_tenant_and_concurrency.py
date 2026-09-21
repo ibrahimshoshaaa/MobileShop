@@ -50,10 +50,12 @@ def test_concurrent_uploads_across_two_sync_workers_execute_once(tmp_path):
     right = SyncProtocol(db)
     calls = []
     lock = threading.Lock()
+    started = threading.Barrier(2)
 
     def execute(envelope):
         with lock:
             calls.append(envelope["command_id"])
+        started.wait(timeout=5)
         return {"ok": True}
 
     envelope = {"command_id": "cross-worker", "tenant_id": "t1", "branch_id": "b1", "payload": {"x": 1}}

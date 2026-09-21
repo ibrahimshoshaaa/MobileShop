@@ -6,7 +6,7 @@ import pytest
 from backend.functions.services.erp_engine import ERPCommandEngine
 from shared.contracts.commands import CommandContext, CreateSaleCommand
 from shared.contracts.errors import DomainError
-from shared.models.erp import Customer, LedgerEntry, Product, Wallet
+from shared.models.erp import Customer, LedgerEntry, Product, ProductUnit, Wallet
 
 
 def ctx(cid, perms):
@@ -337,3 +337,75 @@ def test_stock_transfer_rejects_unknown_or_inactive_destination_branch():
             "p1", Decimal("1"), "b1", "missing", Decimal("100"),
         )
     assert exc.value.code == "BRANCH_ACCESS_DENIED"
+
+
+def test_product_unit_cannot_be_sold_as_a_different_product():
+    e = seed()
+    e.register_product_unit(
+        ctx("unit-register", {"inventory.create_unit"}),
+        ProductUnit("u1", "p1", "b1", imei1="123456789012345"),
+    )
+    with pytest.raises(DomainError) as exc:
+        e.create_sale(CreateSaleCommand(
+            ctx("unit-wrong-product", {"sales.create"}), None,
+            ({"product_id": "wrong-product", "product_unit_id": "u1", "quantity": Decimal("1"), "unit_price": Decimal("200")},),
+            ({"wallet_id": "cash", "amount": Decimal("200")},),
+        ))
+    assert exc.value.code == "INVALID_INPUT"
+
+
+def test_product_unit_cannot_be_purchased_as_a_different_product():
+    e = seed()
+    e.register_product_unit(
+        ctx("purchase-unit-register", {"inventory.create_unit"}),
+        ProductUnit("u2", "p1", "b1", imei1="223456789012345"),
+    )
+    with pytest.raises(DomainError) as exc:
+        e.create_purchase(
+            ctx("unit-wrong-purchase", {"purchases.create"}),
+            "supplier-missing",
+            [{"product_id": "wrong-product", "product_unit_id": "u2", "quantity": Decimal("1"), "unit_cost": Decimal("100")}],
+            Decimal("0"),
+        )
+    assert exc.value.code == "NOT_FOUND"
+
+
+def test_installment_interest_is_added_to_customer_receivable():
+    e = seed()
+    sale = e.create_sale(CreateSaleCommand(
+        ctx("interest-sale", {"sales.create"}), "c1",
+        ({"product_id": "p1", "quantity": Decimal("1"), "unit_price": Decimal("100")},),
+        (),
+    ))
+    plan = e.create_installment_plan(
+        ctx("interest-plan", {"installments.create"}), sale.id, "c1",
+        Decimal("0"), Decimal("10"), 2,
+    )
+    assert plan.total_due == Decimal("110.00")
+    assert e.customer_balance("c1", "b1") == Decimal("110.00")
+    assert e.ledger_transaction_totals(plan.id) == (Decimal("10.00"), Decimal("10.00"))
+
+
+def test_reports_use_ledger_after_return_and_transfer_commission_expense():
+    e = seed()
+    sale = e.create_sale(CreateSaleCommand(
+        ctx("report-sale", {"sales.create"}), None,
+        ({"product_id": "p1", "quantity": Decimal("1"), "unit_price": Decimal("100")},),
+        ({"wallet_id": "cash", "amount": Decimal("100")},),
+    ))
+    e.return_sale(
+        ctx("report-return", {"sales.return"}), sale.id,
+        [{"sale_item_id": sale.items[0].id, "quantity": Decimal("1")}],
+        "cash",
+    )
+    e.ledger.create("digital-opening-report", LedgerEntry(
+        "digital-opening-report", "b1", "wallet:digital", "OPENING", debit=Decimal("1000")
+    ))
+    e.transfer_customer(
+        ctx("report-transfer", {"transfer.create"}), "digital", "cash", Decimal("100"),
+    )
+    report = e.reports_full("b1")
+    assert report["revenue"] == Decimal("0.00")
+    assert report["cogs"] == Decimal("0.00")
+    assert report["transfer_commission"] == Decimal("-1.00")
+    assert report["net_profit"] == Decimal("-1.00")

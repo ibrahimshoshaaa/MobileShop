@@ -209,7 +209,7 @@
 ### P1 — CI verification
 
 - 🟡 الـworkflows التالية موجودة في `.github/workflows/`: `staging-client-e2e.yml`, `staging-smoke.yml`, `turso-integration.yml`, `turso-deep-integration.yml`, `turso-recovery-drill.yml`, `production-audit.yml`, `mobile-release.yml`.
-- 🟢 Pull Request #15 على فرع الإصلاح: CI نجح بالكامل (Python + Flutter analyze + security)، وProduction audit نجح. آخر `main` قبل الإصلاح كان `139 passed / 1 failed` بسبب توقع اختبار concurrency لحالة `PROCESSING` بينما التنفيذ الحالي يعيد `RETRYABLE`؛ تم تحديث الاختبار. Turso Integration نجح على `main`، بينما Turso Deep Integration ما زال فاشلاً بسبب interactive transaction على Turso تم rollback له بعد idle timeout أثناء تزامن عاملين. Staging smoke القديم فشل بـ401 في `/products`، ولم يعد يعمل تلقائياً على `main` بعد تعديل الـtrigger.
+- 🟢 Pull Request #15 على فرع الإصلاح: CI نجح بالكامل (Python + Flutter analyze + security)، وProduction audit نجح. آخر `main` قبل الإصلاح كان `139 passed / 1 failed` بسبب توقع اختبار concurrency لحالة `PROCESSING` بينما التنفيذ الحالي يعيد `RETRYABLE`؛ تم تحديث الاختبار. Turso Integration نجح على `main`، بينما Turso Deep Integration 🟢 نجح بعد مواءمة اختبار Turso مع تصميم Option A ذي الاتصال المشترك؛ الاختبار يثبت idempotency وtenant isolation وsync cursor على Turso بدون إبقاء transaction تفاعلية مفتوحة أثناء انتظار عامل آخر. Staging smoke القديم فشل بـ401 في `/products`، ولم يعد يعمل تلقائياً على `main` بعد تعديل الـtrigger.
 
 ### P1
 - ⬜ إكمال ERP accounting invariants.

@@ -201,7 +201,26 @@ class ERPCommandEngine:
                 if not match:raise DomainError('INVALID_RETURN','الصنف غير موجود في الفاتورة.',{})
                 q=dec(r.get('quantity',match.quantity));
                 if q<=0 or q>match.quantity:raise DomainError('INVALID_RETURN','كمية المرتجع غير صحيحة.',{})
-                refund += q*match.unit_price; returned.append((match,q))
+                returned.append((match,q))
+            # The invoice discount must follow the returned items. Refunds are
+            # based on the same effective net selling value used by the invoice,
+            # not the pre-discount unit price.
+            returned_gross=sum((q*i.unit_price for i,q in returned),D0)
+            refund=money(returned_gross)
+            if s.subtotal>0 and s.discount:
+                refund=money(returned_gross * (s.total / s.subtotal))
+            # Never let cumulative returns exceed the invoice's settled value.
+            # The final cent is assigned to the current return to avoid rounding
+            # drift across multiple partial returns.
+            prior_returns=money(sum(
+                (dec(rr.get('amount',D0)) for rr in self.returns.all()
+                 if isinstance(rr,dict) and rr.get('sale_id')==sale_id), D0
+            ))
+            remaining_settlement=money(s.total-prior_returns)
+            if refund>remaining_settlement:
+                refund=remaining_settlement
+            if refund<=0:
+                raise DomainError('INVALID_RETURN','لا توجد قيمة مالية متبقية لهذا المرتجع.',{})
             # Refunds must follow the original settlement method. A credit sale
             # cannot be turned into a cash payout, and a wallet cannot refund more
             # than it originally received for this sale.

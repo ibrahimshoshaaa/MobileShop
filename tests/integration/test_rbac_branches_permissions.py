@@ -29,11 +29,15 @@ def test_user_cannot_be_assigned_unknown_or_inactive_branch():
 
 def test_branch_and_user_queries_are_tenant_scoped():
     e = ERPCommandEngine()
-    e.create_branch(ctx("a", {"branches.manage"}, tenant="tenant-a"), Branch("a1", "A", "A"))
-    e.create_branch(ctx("b", {"branches.manage"}, tenant="tenant-b"), Branch("b1", "B", "B"))
-    assert [b.id for b in e.branches.all()] == ["a1"]
+    token = set_tenant_scope("tenant-a")
+    try:
+        e.create_branch(ctx("a", {"branches.manage"}, tenant="tenant-a"), Branch("a1", "A", "A"))
+        assert [b.id for b in e.branches.all()] == ["a1"]
+    finally:
+        reset_tenant_scope(token)
     token = set_tenant_scope("tenant-b")
     try:
+        e.create_branch(ctx("b", {"branches.manage"}, tenant="tenant-b"), Branch("b1", "B", "B"))
         assert [b.id for b in e.branches.all()] == ["b1"]
     finally:
         reset_tenant_scope(token)

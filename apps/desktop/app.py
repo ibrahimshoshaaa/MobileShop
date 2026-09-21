@@ -7,13 +7,11 @@ backend/functions/persistence/sqlite_repository.py as-is). Each module keeps
 its own file (inventory_repo.py / inventory_tab.py, etc.) mirroring the
 Flutter feature-folder layout in apps/admin_mobile/lib/features/.
 
-Online mode: set MOBILE_SHOP_ERP_MODE=online to make the Inventory tab talk
-to a real backend/api_server instance (default http://localhost:8000) over
-HTTP instead of the local SQLite file — see api_inventory_repo.py. This is
-scoped to Inventory only for now; Sales and Maintenance still use their own
-local product lookups (ProductPickerWindow defaults to offline inventory_repo)
-even when Inventory itself is in online mode — wiring the rest of the tabs
-the same way is a further increment, not done in this pass.
+Online mode: set MOBILE_SHOP_ERP_MODE=online to make the Inventory and Sales
+surfaces talk to a real backend/api_server instance (default
+http://localhost:8000) over HTTP instead of local SQLite. Sales uses
+api_sales_repo.py plus the server's customers/wallets read endpoints. The
+remaining desktop tabs stay offline until integrated one surface at a time.
 
 Configure the connection with:
     MOBILE_SHOP_ERP_MODE=online

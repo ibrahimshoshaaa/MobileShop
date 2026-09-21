@@ -53,7 +53,8 @@ def _online_repositories():
     import api_maintenance_repo
     api_client.DEFAULT_BASE_URL = os.environ.get("MOBILE_SHOP_ERP_API_URL", api_client.DEFAULT_BASE_URL)
     api_client.DEFAULT_TOKEN = os.environ.get("MOBILE_SHOP_ERP_API_TOKEN", api_client.DEFAULT_TOKEN)
-    client = api_client.ApiClient(api_client.DEFAULT_BASE_URL, api_client.DEFAULT_TOKEN)
+    branch_id = os.environ.get("MOBILE_SHOP_ERP_BRANCH_ID", api_client.DEFAULT_BRANCH_ID)
+    client = api_client.ApiClient(api_client.DEFAULT_BASE_URL, api_client.DEFAULT_TOKEN, branch_id)
     api_sales_repo._client = client
     api_inventory_repo._client = client
     api_customers_repo._client = client
@@ -89,7 +90,7 @@ class DesktopApp:
 
         if ONLINE_MODE:
             api_url = os.environ.get("MOBILE_SHOP_ERP_API_URL", "http://localhost:8000")
-            status_text = f"الوضع: متصل بالسيرفر (المخزون + المبيعات) — {api_url}"
+            status_text = f"الوضع: متصل بالسيرفر (Online) — {api_url}"
             try:
                 inventory_repo_module.list_products()
             except Exception as e:

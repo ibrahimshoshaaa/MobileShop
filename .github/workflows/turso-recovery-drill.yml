@@ -2,6 +2,8 @@ name: Turso recovery drill
 
 on:
   workflow_dispatch:
+  push:
+    branches: ["release/production-gates-audit"]
 
 permissions:
   contents: read

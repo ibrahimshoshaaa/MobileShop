@@ -10,11 +10,10 @@ from __future__ import annotations
 import json
 import os
 import sys
-from decimal import Decimal
 
 import firebase_admin
 from firebase_admin import auth, credentials
-import libsql
+import libsql_client
 
 TENANT_ID = os.getenv("STAGING_TENANT_ID", "staging-tenant")
 BRANCH_ID = os.getenv("STAGING_BRANCH_ID", "staging-main")
@@ -56,97 +55,95 @@ def main() -> int:
     init_firebase()
     user = auth.get_user(uid)
 
-    conn = libsql.connect(database=db_url, auth_token=db_token)
-    conn.execute(
-        """CREATE TABLE IF NOT EXISTS records (
-            repo TEXT NOT NULL,
-            record_id TEXT NOT NULL,
-            payload TEXT NOT NULL,
-            tenant_id TEXT NOT NULL DEFAULT 'legacy',
-            PRIMARY KEY (repo, record_id)
-        )"""
-    )
-    columns = {row[1] for row in conn.execute("PRAGMA table_info(records)").fetchall()}
-    if "tenant_id" not in columns:
-        conn.execute("ALTER TABLE records ADD COLUMN tenant_id TEXT NOT NULL DEFAULT 'legacy'")
+    # libsql-client is a pure-Python client that can use Turso's HTTP endpoint,
+    # which makes this provisioning script usable from Termux/Android where the
+    # Rust-backed libsql package does not provide a compatible wheel.
+    http_url = db_url.replace("libsql://", "https://", 1)
+    with libsql_client.create_client_sync(http_url, auth_token=db_token) as conn:
+        conn.execute(
+            """CREATE TABLE IF NOT EXISTS records (
+                repo TEXT NOT NULL,
+                record_id TEXT NOT NULL,
+                payload TEXT NOT NULL,
+                tenant_id TEXT NOT NULL DEFAULT 'legacy',
+                PRIMARY KEY (repo, record_id)
+            )"""
+        )
+        columns = {row[1] for row in conn.execute("PRAGMA table_info(records)").rows}
+        if "tenant_id" not in columns:
+            conn.execute("ALTER TABLE records ADD COLUMN tenant_id TEXT NOT NULL DEFAULT 'legacy'")
 
-    # Plain JSON records are only bootstrap fixtures. The application will
-    # deserialize the tagged dataclass payloads when it loads them, so the
-    # fixture below uses the same tagged representation.
-    def dc(name: str, fields: dict) -> dict:
-        return {"__dataclass__": name, "fields": fields}
+        def dc(name: str, fields: dict) -> dict:
+            return {"__dataclass__": name, "fields": fields}
 
-    def dec(value: str) -> dict:
-        return {"__decimal__": value}
+        def dec(value: str) -> dict:
+            return {"__decimal__": value}
 
-    insert_record(
-        conn,
-        "products",
-        "staging-product-1",
-        dc("Product", {
-            "id": "staging-product-1",
-            "name": "Staging Test Phone",
-            "sku": "STAGING-001",
-            "product_type": "PHONE",
-            "barcode": "STAGING-001",
-            "selling_price": dec("1000"),
-            "default_cost": dec("600"),
-            "warranty_days": 365,
-            "reorder_level": dec("1"),
-            "active": True,
-            "tenant_id": TENANT_ID,
-        }),
-        TENANT_ID,
-    )
-    insert_record(
-        conn,
-        "stock",
-        "staging-stock-1",
-        dc("StockMovement", {
-            "id": "staging-stock-1",
-            "branch_id": BRANCH_ID,
-            "product_id": "staging-product-1",
-            "quantity": dec("10"),
-            "movement_type": "OPENING_BALANCE",
-            "reference_id": "staging-bootstrap",
-            "unit_id": None,
-            "cost": dec("600"),
-            "created_at": {"__datetime__": "2026-01-01T00:00:00+00:00"},
-            "tenant_id": TENANT_ID,
-        }),
-        TENANT_ID,
-    )
-    insert_record(
-        conn,
-        "wallets",
-        "staging-wallet-cash",
-        dc("Wallet", {
-            "id": "staging-wallet-cash",
-            "branch_id": BRANCH_ID,
-            "name": "Staging Cash",
-            "wallet_type": "CASH",
-            "active": True,
-            "tenant_id": TENANT_ID,
-        }),
-        TENANT_ID,
-    )
-    insert_record(
-        conn,
-        "customers",
-        "staging-customer-1",
-        dc("Customer", {
-            "id": "staging-customer-1",
-            "name": "Staging Test Customer",
-            "phone": "0000000000",
-            "active": True,
-            "tenant_id": TENANT_ID,
-        }),
-        TENANT_ID,
-    )
-    conn.commit()
+        insert_record(
+            conn,
+            "products",
+            "staging-product-1",
+            dc("Product", {
+                "id": "staging-product-1",
+                "name": "Staging Test Phone",
+                "sku": "STAGING-001",
+                "product_type": "PHONE",
+                "barcode": "STAGING-001",
+                "selling_price": dec("1000"),
+                "default_cost": dec("600"),
+                "warranty_days": 365,
+                "reorder_level": dec("1"),
+                "active": True,
+                "tenant_id": TENANT_ID,
+            }),
+            TENANT_ID,
+        )
+        insert_record(
+            conn,
+            "stock",
+            "staging-stock-1",
+            dc("StockMovement", {
+                "id": "staging-stock-1",
+                "branch_id": BRANCH_ID,
+                "product_id": "staging-product-1",
+                "quantity": dec("10"),
+                "movement_type": "OPENING_BALANCE",
+                "reference_id": "staging-bootstrap",
+                "unit_id": None,
+                "cost": dec("600"),
+                "created_at": {"__datetime__": "2026-01-01T00:00:00+00:00"},
+                "tenant_id": TENANT_ID,
+            }),
+            TENANT_ID,
+        )
+        insert_record(
+            conn,
+            "wallets",
+            "staging-wallet-cash",
+            dc("Wallet", {
+                "id": "staging-wallet-cash",
+                "branch_id": BRANCH_ID,
+                "name": "Staging Cash",
+                "wallet_type": "CASH",
+                "active": True,
+                "tenant_id": TENANT_ID,
+            }),
+            TENANT_ID,
+        )
+        insert_record(
+            conn,
+            "customers",
+            "staging-customer-1",
+            dc("Customer", {
+                "id": "staging-customer-1",
+                "name": "Staging Test Customer",
+                "phone": "0000000000",
+                "active": True,
+                "tenant_id": TENANT_ID,
+            }),
+            TENANT_ID,
+        )
 
-    # Keep this principal intentionally limited to the read permission needed
-    # by the staging smoke. More permissions can be added later for client E2E.
     claims = {
         "tenant_id": TENANT_ID,
         "branch_ids": [BRANCH_ID],

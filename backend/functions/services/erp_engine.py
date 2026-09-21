@@ -352,7 +352,16 @@ class ERPCommandEngine:
             if q==0:raise DomainError('INVALID_INPUT','التعديل لا يمكن أن يكون صفراً.',{})
             if q<0 and self._available_qty(_ctx(command).branch_id,product_id)+q<0:raise DomainError('INSUFFICIENT_STOCK','المخزون غير كافٍ.',{})
             m=StockMovement(_ctx(command).command_id,_ctx(command).branch_id,product_id,q,'ADJUSTMENT',_ctx(command).command_id,None,c)
-            self._put(self.stock,m); self._audit(_ctx(command),'ADJUST_STOCK',m.id,{'quantity':str(q),'reason':reason}); self._processed[_ctx(command).idempotency_key]=m; return m
+            self._put(self.stock,m)
+            value=money(abs(q)*c)
+            if value:
+                if q>0:
+                    self._put(self.ledger,LedgerEntry(f'{m.id}:inventory',m.branch_id,'inventory','STOCK_ADJUSTMENT',debit=value,reference_id=m.id))
+                    self._put(self.ledger,LedgerEntry(f'{m.id}:adjustment',m.branch_id,'stock_adjustment','STOCK_ADJUSTMENT',credit=value,reference_id=m.id))
+                else:
+                    self._put(self.ledger,LedgerEntry(f'{m.id}:inventory',m.branch_id,'inventory','STOCK_ADJUSTMENT',credit=value,reference_id=m.id))
+                    self._put(self.ledger,LedgerEntry(f'{m.id}:adjustment',m.branch_id,'stock_adjustment','STOCK_ADJUSTMENT',debit=value,reference_id=m.id))
+            self._audit(_ctx(command),'ADJUST_STOCK',m.id,{'quantity':str(q),'cost':str(c),'reason':reason}); self._processed[_ctx(command).idempotency_key]=m; return m
 
     def transfer_stock(self,command,product_id,quantity,from_branch,to_branch,cost=0):
         with self._lock:
@@ -369,8 +378,16 @@ class ERPCommandEngine:
             if self._available_qty(from_branch,product_id)<q:raise DomainError('INSUFFICIENT_STOCK','المخزون غير كافٍ.',{})
             c=money(cost)
             if c<0:raise DomainError('INVALID_INPUT','التكلفة لا يمكن أن تكون سالبة.',{})
-            tid=_ctx(command).command_id; self._put(self.stock,StockMovement(f'{tid}:out',from_branch,product_id,-q,'TRANSFER_OUT',tid,None,c)); self._put(self.stock,StockMovement(f'{tid}:in',to_branch,product_id,q,'TRANSFER_IN',tid,None,c))
-            self._audit(_ctx(command),'TRANSFER_STOCK',tid,{'from':from_branch,'to':to_branch,'quantity':str(q)}); self._processed[_ctx(command).idempotency_key]=tid; return tid
+            if c==0:
+                c=self._avg_cost(from_branch,product_id)
+            tid=_ctx(command).command_id
+            self._put(self.stock,StockMovement(f'{tid}:out',from_branch,product_id,-q,'TRANSFER_OUT',tid,None,c))
+            self._put(self.stock,StockMovement(f'{tid}:in',to_branch,product_id,q,'TRANSFER_IN',tid,None,c))
+            value=money(q*c)
+            if value:
+                self._put(self.ledger,LedgerEntry(f'{tid}:source_inventory',from_branch,'inventory','STOCK_TRANSFER',credit=value,reference_id=tid))
+                self._put(self.ledger,LedgerEntry(f'{tid}:destination_inventory',to_branch,'inventory','STOCK_TRANSFER',debit=value,reference_id=tid))
+            self._audit(_ctx(command),'TRANSFER_STOCK',tid,{'from':from_branch,'to':to_branch,'quantity':str(q),'cost':str(c)}); self._processed[_ctx(command).idempotency_key]=tid; return tid
 
     def transfer_between_wallets(self,command,source,destination,amount):
         with self._lock:
@@ -626,9 +643,21 @@ class ERPCommandEngine:
             nr=replace(r,paid=a); self.salary_records.update(r.id,nr); self._put(self.ledger,LedgerEntry(f'{r.id}:salary',_ctx(command).branch_id,'salary_expense','SALARY',debit=a,reference_id=r.id)); self._put(self.ledger,LedgerEntry(f'{r.id}:wallet',_ctx(command).branch_id,f'wallet:{wallet_id}','SALARY_PAYMENT',credit=a,reference_id=r.id)); self._audit(_ctx(command),'PAY_SALARY',r.id,{'amount':str(a)}); self._processed[_ctx(command).idempotency_key]=nr; return nr
 
     def reports(self,branch_id,start=None,end=None):
+        def in_range(entry):
+            created=getattr(entry,'created_at',None)
+            day=created.date() if created is not None and hasattr(created,'date') else None
+            return (start is None or day is None or day>=start) and (end is None or day is None or day<=end)
+        def account_total(account_id):
+            total=D0
+            for entry in self.ledger.all():
+                if getattr(entry,'branch_id',None)!=branch_id or getattr(entry,'account_id',None)!=account_id or not in_range(entry):
+                    continue
+                total += dec(getattr(entry,'credit',D0))-dec(getattr(entry,'debit',D0))
+            return money(total)
         sales=[s for s in self.sales.all() if s.branch_id==branch_id and s.status!='VOIDED' and (not start or s.created_at.date()>=start) and (not end or s.created_at.date()<=end)]
-        revenue=sum((s.total for s in sales),D0); cogs=sum((i.quantity*i.cost_snapshot for s in sales for i in s.items),D0)
-        return {'sales_count':len(sales),'revenue':money(revenue),'cogs':money(cogs),'gross_profit':money(revenue-cogs),'wallet_balances':{w.id:money(self._balance(w.id)) for w in self.wallets.all() if w.branch_id==branch_id}}
+        revenue=account_total('sales_revenue')
+        cogs=-account_total('cost_of_goods_sold')
+        return {'sales_count':len(sales),'revenue':revenue,'cogs':cogs,'gross_profit':money(revenue-cogs),'wallet_balances':{w.id:money(self._balance(w.id)) for w in self.wallets.all() if w.branch_id==branch_id}}
 
     def inventory_report(self,branch_id):
         out=[]

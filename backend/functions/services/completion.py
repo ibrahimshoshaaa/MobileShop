@@ -395,7 +395,7 @@ def install_completion(engine_cls):
             })
         return True
 
-    engine_cls.transaction=transaction; engine_cls.collect_customer=collect_customer; engine_cls.transfer_customer=transfer_customer; engine_cls.report_rows=report_rows
+    engine_cls.transaction=transaction; engine_cls.create_branch=create_branch; engine_cls.create_role=create_role; engine_cls.create_user_profile=create_user_profile; engine_cls.update_user_access=update_user_access; engine_cls.collect_customer=collect_customer; engine_cls.transfer_customer=transfer_customer; engine_cls.report_rows=report_rows
     engine_cls.ledger_transaction_totals=ledger_transaction_totals; engine_cls.assert_ledger_balanced=assert_ledger_balanced
 
     # Financial commands are executed inside the same snapshot/rollback boundary.

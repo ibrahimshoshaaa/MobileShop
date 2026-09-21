@@ -43,7 +43,7 @@ def test_online_supplier_add_uses_command_not_local_storage(monkeypatch):
 
     assert supplier.id == "s1"
     assert fake.calls[0][1] == "createSupplier"
-    assert fake.calls[0][2] == {"name": "Supplier", "phone": "0100"}
+    assert fake.calls[0][2] == {"name": "Supplier", "phone": "0100", "branch_ids": ["LOCAL_BRANCH"]}
 
 
 def test_online_expense_resolves_wallet_and_posts_command(monkeypatch):

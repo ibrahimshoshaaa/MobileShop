@@ -313,12 +313,14 @@ def install_completion(engine_cls):
                 if q<=0 or cost<0: raise DomainError('INVALID_INPUT','الكمية والتكلفة غير صحيحتين.',{})
                 uid=i.get('product_unit_id')
                 if uid:
+                    if q != Decimal('1'): raise DomainError('INVALID_INPUT','شراء وحدة IMEI يجب أن يكون بكمية 1.',{})
                     u=self.units.get(uid)
                     if not u: raise DomainError('NOT_FOUND','وحدة المنتج غير موجودة.',{})
                     if u.branch_id!=ctx.branch_id: raise DomainError('BRANCH_ACCESS_DENIED','الوحدة خارج الفرع.',{})
                     if u.product_id!=i['product_id']:
                         raise DomainError('INVALID_INPUT','وحدة المنتج لا تطابق المنتج المحدد.',{})
                     if u.status=='SOLD': raise DomainError('INVALID_INPUT','الوحدة مباعة بالفعل.',{})
+                    if u.status!='AVAILABLE': raise DomainError('INVALID_INPUT','الوحدة غير متاحة للشراء.',{})
                     nu=replace(u,status='AVAILABLE',purchase_cost=cost,final_cost=M(cost+u.refurbishing_cost+u.direct_cost))
                     self.units.update(uid,nu)
                     self._put(self.stock,StockMovement(f'{ctx.command_id}:unit:{uid}',ctx.branch_id,i['product_id'],D0,'PURCHASE',ctx.command_id,uid,nu.final_cost))
@@ -349,6 +351,7 @@ def install_completion(engine_cls):
                 if q<=0 or price<0: raise DomainError('INVALID_INPUT','الكمية والسعر غير صحيحين.',{})
                 cost=D0
                 if uid:
+                    if q != Decimal('1'): raise DomainError('INVALID_INPUT','بيع وحدة IMEI يجب أن يكون بكمية 1.',{})
                     u=self.units.get(uid)
                     if not u: raise DomainError('NOT_FOUND','وحدة المنتج غير موجودة.',{})
                     if u.branch_id!=ctx.branch_id: raise DomainError('BRANCH_ACCESS_DENIED','الوحدة خارج الفرع.',{})

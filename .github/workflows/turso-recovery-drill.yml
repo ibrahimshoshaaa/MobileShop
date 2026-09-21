@@ -12,7 +12,7 @@ jobs:
   pitr:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Install Turso CLI
         run: curl -sSfL https://get.tur.so/install.sh | bash
       - name: Validate recovery configuration

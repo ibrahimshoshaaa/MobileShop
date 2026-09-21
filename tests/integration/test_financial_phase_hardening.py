@@ -6,7 +6,7 @@ import pytest
 from backend.functions.services.erp_engine import ERPCommandEngine
 from shared.contracts.commands import CommandContext, CreateSaleCommand
 from shared.contracts.errors import DomainError
-from shared.models.erp import Customer, LedgerEntry, Product, ProductUnit, Wallet
+from shared.models.erp import Customer, LedgerEntry, Product, ProductUnit, Supplier, Wallet
 
 
 def ctx(cid, perms):
@@ -356,6 +356,7 @@ def test_product_unit_cannot_be_sold_as_a_different_product():
 
 def test_product_unit_cannot_be_purchased_as_a_different_product():
     e = seed()
+    e.suppliers.create("sup1", Supplier("sup1", "Supplier", branch_ids=("b1",)))
     e.register_product_unit(
         ctx("purchase-unit-register", {"inventory.create_unit"}),
         ProductUnit("u2", "p1", "b1", imei1="223456789012345"),
@@ -363,7 +364,7 @@ def test_product_unit_cannot_be_purchased_as_a_different_product():
     with pytest.raises(DomainError) as exc:
         e.create_purchase(
             ctx("unit-wrong-purchase", {"purchases.create"}),
-            "supplier-missing",
+            "sup1",
             [{"product_id": "wrong-product", "product_unit_id": "u2", "quantity": Decimal("1"), "unit_cost": Decimal("100")}],
             Decimal("0"),
         )

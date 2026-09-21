@@ -44,6 +44,37 @@ def test_concurrent_sync_upload_is_idempotent(tmp_path):
     sync.close()
 
 
+def test_processing_claim_is_never_auto_reclaimed(tmp_path):
+    sync = SyncProtocol(tmp_path / "stuck.db")
+    envelope = {"command_id": "stuck", "tenant_id": "t1", "branch_id": "b1", "payload": {"x": 1}}
+    request_hash = __import__("hashlib").sha256(
+        __import__("json").dumps(envelope, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode()
+    ).hexdigest()
+    sync.db.execute(
+        "INSERT INTO sync_receipts(tenant_id,branch_id,command_id,status,request_hash,claimed_at) VALUES(?,?,?,?,?,?)",
+        ("t1", "b1", "stuck", "PROCESSING", request_hash, 1.0),
+    )
+    sync.db.commit()
+    calls = []
+
+    result = sync.upload(
+        [envelope],
+        tenant_id="t1",
+        branch_id="b1",
+        executor=lambda _: calls.append("executed"),
+    )
+
+    assert result["results"][0]["status"] == "PROCESSING"
+    assert result["results"][0]["retryable"] is True
+    assert calls == []
+    row = sync.db.execute(
+        "SELECT status FROM sync_receipts WHERE tenant_id=? AND branch_id=? AND command_id=?",
+        ("t1", "b1", "stuck"),
+    ).fetchone()
+    assert row == ("PROCESSING",)
+    sync.close()
+
+
 def test_concurrent_uploads_across_two_sync_workers_execute_once(tmp_path):
     db = tmp_path / "shared-sync.db"
     left = SyncProtocol(db)

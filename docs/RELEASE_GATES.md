@@ -39,7 +39,7 @@ Required operational evidence:
 4. Destroy the disposable restore target.
 5. Record the timestamp and result without storing credentials in Git.
 
-Turso supports point-in-time restore by creating a new database from an existing database at a specified timestamp. urlTurso point-in-time restore documentationhttps://turso.tech/blog/turso-now-supports-database-branching-and-point-in-time-restore-eaadb8c4dce5
+Turso supports point-in-time restore by creating a new database from an existing database at a specified timestamp; consult the current Turso documentation before executing the operational drill.
 
 ## Gate 5 — Client E2E
 CI validates the Flutter and Python client surfaces, but release evidence must still exercise authenticated workflows against staging:

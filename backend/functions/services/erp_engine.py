@@ -114,7 +114,7 @@ class ERPCommandEngine:
         prod=self.products.get(pid)
         movements=[m for m in self.stock.all() if m.branch_id==bid and m.product_id==pid and not m.unit_id]
         qty=sum((m.quantity for m in movements),D0); value=sum((m.quantity*m.cost for m in movements),D0)
-        return (value/qty if qty else (prod.default_cost if prod else D0))
+        return money(value/qty) if qty else money(prod.default_cost if prod else D0)
 
     def create_sale(self,command):
         with self._lock:
@@ -161,8 +161,8 @@ class ERPCommandEngine:
             if receivable and s.customer_id:
                 self._put(self.ledger,LedgerEntry(f'{s.id}:customer',s.branch_id,f'customer:{s.customer_id}','SALE_CREDIT',debit=receivable,reference_id=s.id))
             if cost_total:
-                self._put(self.ledger,LedgerEntry(f'{s.id}:cogs',s.branch_id,'cost_of_goods_sold','SALE',debit=cost_total,reference_id=s.id))
-                self._put(self.ledger,LedgerEntry(f'{s.id}:inventory',s.branch_id,'inventory','SALE',credit=cost_total,reference_id=s.id))
+                self._put(self.ledger,LedgerEntry(f'{s.id}:cogs',s.branch_id,'cost_of_goods_sold','SALE',debit=money(cost_total),reference_id=s.id))
+                self._put(self.ledger,LedgerEntry(f'{s.id}:inventory',s.branch_id,'inventory','SALE',credit=money(cost_total),reference_id=s.id))
             self._audit(_ctx(command),'CREATE_SALE',s.id,{'total':str(total),'discount':str(discount)}); self._processed[_ctx(command).idempotency_key]=s; return s
 
     def void_sale(self,command,sale_id,reason=''):
@@ -409,10 +409,10 @@ class ERPCommandEngine:
         with self._lock:
             self._auth(_ctx(command),'maintenance.parts'); old=self._idem(_ctx(command))
             if old:return old
-            q=dec(quantity); c=dec(cost); t=self.maintenance.get(ticket_id)
+            q=dec(quantity); c=money(cost); t=self.maintenance.get(ticket_id)
             if not t:raise DomainError('NOT_FOUND','طلب الصيانة غير موجود.',{})
             if self._available_qty(t.branch_id,product_id)<q:raise DomainError('INSUFFICIENT_STOCK','المخزون غير كافٍ.',{})
-            part={'id':_ctx(command).command_id,'ticket_id':ticket_id,'product_id':product_id,'quantity':q,'cost':c}; self._put(self.maintenance_parts,part); self._put(self.stock,StockMovement(f'{part["id"]}:stock',t.branch_id,product_id,-q,'MAINTENANCE_USE',ticket_id,None,c)); nt=replace(t,parts_cost=t.parts_cost+q*c); self.maintenance.update(t.id,nt); self._audit(_ctx(command),'USE_MAINTENANCE_PART',ticket_id,{'product_id':product_id,'quantity':str(q)}); self._processed[_ctx(command).idempotency_key]=part; return part
+            part={'id':_ctx(command).command_id,'ticket_id':ticket_id,'product_id':product_id,'quantity':q,'cost':c}; self._put(self.maintenance_parts,part); self._put(self.stock,StockMovement(f'{part["id"]}:stock',t.branch_id,product_id,-q,'MAINTENANCE_USE',ticket_id,None,c)); nt=replace(t,parts_cost=money(t.parts_cost+q*c)); self.maintenance.update(t.id,nt); self._audit(_ctx(command),'USE_MAINTENANCE_PART',ticket_id,{'product_id':product_id,'quantity':str(q)}); self._processed[_ctx(command).idempotency_key]=part; return part
 
     def reopen_day(self,command,closing_date):
         with self._lock:

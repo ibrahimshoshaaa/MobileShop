@@ -111,34 +111,56 @@ class SyncProtocol:
                 })
                 continue
 
-            try:
-                # Claim the command before executing it. The claim is committed
-                # separately so two API workers cannot both execute the same
-                # command before either one writes its final receipt.
-                self.db.execute(
-                    "INSERT INTO sync_receipts(tenant_id,branch_id,command_id,status,request_hash,claimed_at) VALUES(?,?,?,?,?,?)",
-                    (tenant_id, branch_id, command_id, "PROCESSING", request_hash, time.time()),
-                )
-                self.db.commit()
-            except Exception as exc:
-                # SQLite raises IntegrityError; Turso/libSQL Hrana surfaces
-                # UNIQUE constraint conflicts as ValueError. Treat both as
-                # the same cross-worker idempotency race.
-                if not isinstance(exc, sqlite3.IntegrityError) and "UNIQUE constraint failed" not in str(exc):
-                    raise
-                row = self.db.execute(
-                    "SELECT status,result_json,error_code,request_hash,claimed_at FROM sync_receipts WHERE tenant_id=? AND branch_id=? AND command_id=?",
-                    (tenant_id, branch_id, command_id),
-                ).fetchone()
-                if row and row[3] == request_hash:
-                    if row[0] == "PROCESSING" and row[4] and time.time() - float(row[4]) > 60:
-                        self.db.execute("DELETE FROM sync_receipts WHERE tenant_id=? AND branch_id=? AND command_id=?", (tenant_id, branch_id, command_id))
-                        self.db.commit()
+            claimed = False
+            for attempt in range(5):
+                try:
+                    # Claim the command before executing it. The claim is committed
+                    # separately so two API workers cannot both execute the same
+                    # command before either one writes its final receipt.
+                    self.db.execute(
+                        "INSERT INTO sync_receipts(tenant_id,branch_id,command_id,status,request_hash,claimed_at) VALUES(?,?,?,?,?,?)",
+                        (tenant_id, branch_id, command_id, "PROCESSING", request_hash, time.time()),
+                    )
+                    self.db.commit()
+                    claimed = True
+                    break
+                except Exception as exc:
+                    message = str(exc)
+                    is_unique = isinstance(exc, sqlite3.IntegrityError) or "UNIQUE constraint failed" in message
+                    is_busy = "SQLITE_BUSY" in message or "database is locked" in message
+                    if is_busy:
+                        # Turso/Hrana can roll back the interactive transaction
+                        # when concurrent writers contend. The claim is not ours,
+                        # so retry the INSERT after the competing writer has had
+                        # a chance to commit.
+                        if attempt < 4:
+                            time.sleep(0.05 * (attempt + 1))
+                            continue
+                        raise DomainError("DB_BUSY", "قاعدة البيانات مشغولة مؤقتاً.", {}) from exc
+                    if not is_unique:
+                        raise
+
+                    # SQLite raises IntegrityError; Turso/libSQL Hrana can surface
+                    # UNIQUE constraint conflicts as ValueError. Treat both as
+                    # the same cross-worker idempotency race.
+                    row = self.db.execute(
+                        "SELECT status,result_json,error_code,request_hash,claimed_at FROM sync_receipts WHERE tenant_id=? AND branch_id=? AND command_id=?",
+                        (tenant_id, branch_id, command_id),
+                    ).fetchone()
+                    if row and row[3] == request_hash:
+                        if row[0] == "PROCESSING" and row[4] and time.time() - float(row[4]) > 60:
+                            self.db.execute("DELETE FROM sync_receipts WHERE tenant_id=? AND branch_id=? AND command_id=?", (tenant_id, branch_id, command_id))
+                            self.db.commit()
+                        else:
+                            results.append({"command_id": command_id, "status": row[0], "result": json.loads(row[1]) if row[1] else None, "error_code": row[2], "retryable": row[0] == "PROCESSING"})
+                            break
                     else:
-                        results.append({"command_id": command_id, "status": row[0], "result": json.loads(row[1]) if row[1] else None, "error_code": row[2], "retryable": row[0] == "PROCESSING"})
-                        continue
-                else:
-                    results.append({"command_id": command_id, "status": "CONFLICT", "error_code": "IDEMPOTENCY_KEY_REUSE"})
+                        results.append({"command_id": command_id, "status": "CONFLICT", "error_code": "IDEMPOTENCY_KEY_REUSE"})
+                    break
+
+            if not claimed:
+                # A matching receipt was found during the race and the result
+                # was already appended above.
                 continue
 
             try:

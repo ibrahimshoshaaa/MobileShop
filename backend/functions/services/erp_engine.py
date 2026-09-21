@@ -36,6 +36,16 @@ class ERPCommandEngine:
         self._active_tenant = str(tenant_id)
         if perm not in getattr(ctx,'permissions',frozenset()):
             raise DomainError('FORBIDDEN','لا توجد صلاحية لتنفيذ العملية.',{'permission':perm})
+        # A locked closing freezes operational commands for the closed business day.
+        # Re-opening is an explicit privileged operation; closing itself handles the
+        # duplicate-close case separately.
+        if perm not in {'closing.reopen','closing.close'}:
+            today=date.today()
+            if any(
+                c.branch_id==ctx.branch_id and c.locked and c.closing_date<=today
+                for c in self.closings.all()
+            ):
+                raise DomainError('DAY_CLOSED','تم إغلاق اليوم لهذا الفرع.',{'branch_id':ctx.branch_id})
     def _idem(self, ctx):
         return self._processed.get(ctx.idempotency_key)
     def _audit(self,ctx,action,ref,details=None):
@@ -365,6 +375,21 @@ class ERPCommandEngine:
             if not t:raise DomainError('NOT_FOUND','طلب الصيانة غير موجود.',{})
             if self._available_qty(t.branch_id,product_id)<q:raise DomainError('INSUFFICIENT_STOCK','المخزون غير كافٍ.',{})
             part={'id':_ctx(command).command_id,'ticket_id':ticket_id,'product_id':product_id,'quantity':q,'cost':c}; self._put(self.maintenance_parts,part); self._put(self.stock,StockMovement(f'{part["id"]}:stock',t.branch_id,product_id,-q,'MAINTENANCE_USE',ticket_id,None,c)); nt=replace(t,parts_cost=t.parts_cost+q*c); self.maintenance.update(t.id,nt); self._audit(_ctx(command),'USE_MAINTENANCE_PART',ticket_id,{'product_id':product_id,'quantity':str(q)}); self._processed[_ctx(command).idempotency_key]=part; return part
+
+    def reopen_day(self,command,closing_date):
+        with self._lock:
+            self._auth(_ctx(command),'closing.reopen')
+            old=self._idem(_ctx(command))
+            if old:return old
+            rows=[c for c in self.closings.all() if c.branch_id==_ctx(command).branch_id and c.closing_date==closing_date and c.locked]
+            if not rows:
+                raise DomainError('NOT_FOUND','لا يوجد إقفال مغلق لهذا اليوم.',{})
+            closing=rows[-1]
+            reopened=replace(closing,locked=False)
+            self.closings.update(closing.id,reopened)
+            self._audit(_ctx(command),'REOPEN_DAY',closing.id,{'closing_date':str(closing_date)})
+            self._processed[_ctx(command).idempotency_key]=reopened
+            return reopened
 
     def close_day(self,command,closing_date,actual):
         with self._lock:

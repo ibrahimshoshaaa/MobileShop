@@ -8,6 +8,8 @@ on:
         required: true
         default: "1.0.0"
   push:
+    branches:
+      - "release/mobile-v1.0.0"
     tags:
       - "v*.*.*"
 

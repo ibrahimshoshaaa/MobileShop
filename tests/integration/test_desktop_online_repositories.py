@@ -11,6 +11,7 @@ from apps.desktop import api_expenses_repo, api_installments_repo, api_maintenan
 
 class FakeClient:
     def __init__(self):
+        self.branch_id = "LOCAL_BRANCH"
         self.calls = []
         self.command_result = None
         self.entities = {}

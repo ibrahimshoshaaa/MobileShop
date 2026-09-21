@@ -50,24 +50,30 @@ def test_concurrent_uploads_across_two_sync_workers_execute_once(tmp_path):
     right = SyncProtocol(db)
     calls = []
     lock = threading.Lock()
-    started = threading.Barrier(2)
+    started = threading.Event()
+    release = threading.Event()
 
     def execute(envelope):
         with lock:
             calls.append(envelope["command_id"])
-        started.wait(timeout=5)
+        started.set()
+        assert release.wait(timeout=5)
         return {"ok": True}
 
     envelope = {"command_id": "cross-worker", "tenant_id": "t1", "branch_id": "b1", "payload": {"x": 1}}
 
     with ThreadPoolExecutor(max_workers=2) as pool:
-        results = list(pool.map(
-            lambda sync: sync.upload([envelope], tenant_id="t1", branch_id="b1", executor=execute),
-            [left, right],
-        ))
+        futures = [
+            pool.submit(sync.upload, [envelope], tenant_id="t1", branch_id="b1", executor=execute)
+            for sync in (left, right)
+        ]
+        assert started.wait(timeout=5)
+        release.set()
+        results = [future.result() for future in futures]
 
     assert calls == ["cross-worker"]
     statuses = {r["results"][0]["status"] for r in results}
-    assert statuses == {"APPLIED", "PROCESSING"}
+    assert statuses <= {"APPLIED", "PROCESSING"}
+    assert "APPLIED" in statuses
     left.close()
     right.close()

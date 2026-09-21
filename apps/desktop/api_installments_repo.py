@@ -39,10 +39,16 @@ def _wallet_for_payment(method):
     return w["id"]
 
 def _payments(plan_id):
-    # The public query endpoint exposes the primary installment repository;
-    # payment rows are retrieved through the dedicated API endpoint added below.
     rows=[x for x in _client.get_entity("installment-payments") if x.get("plan_id")==plan_id]
-    return [InstallmentPayment(id=x["id"],plan_id=x["plan_id"],amount=float(x["amount"]),method=x["wallet_id"],paid_at=datetime.fromisoformat(x["paid_at"].replace("Z","+00:00"))) for x in rows]
+    wallets={w["id"]:w for w in _client.get_wallets()}
+    return [
+        InstallmentPayment(
+            id=x["id"], plan_id=x["plan_id"], amount=float(x["amount"]),
+            method=wallets.get(x["wallet_id"],{}).get("wallet_type",x["wallet_id"]),
+            paid_at=datetime.fromisoformat(x["paid_at"].replace("Z","+00:00")),
+        )
+        for x in rows
+    ]
 
 def list_payments(plan_id): return _payments(plan_id)
 def remaining(plan_id):
@@ -50,10 +56,10 @@ def remaining(plan_id):
     if not p: raise AppError("خطة التقسيط غير موجودة.")
     return max(0.0,p.total_due-sum(x.amount for x in _payments(plan_id)))
 
-def create_plan(*,customer_id,customer_name,price,down_payment,rate_percent,term_months,sale_id=None):
+def create_plan(*,customer_id,customer_name,price,down_payment,rate_percent,term_months,sale_id=None,down_payment_method="CASH"):
     if not sale_id: raise AppError("التقسيط Online يحتاج رقم فاتورة مرتبطة.")
     wallet_id=None
-    if down_payment>0: wallet_id=_wallet_for_payment("CASH")
+    if down_payment>0: wallet_id=_wallet_for_payment(down_payment_method)
     d=_client.command(f"cmd-plan-{uuid.uuid4().hex[:12]}","createInstallmentPlan",{"sale_id":sale_id,"customer_id":customer_id,"down_payment":down_payment,"rate_percent":rate_percent,"term_months":term_months,"down_payment_wallet_id":wallet_id})
     return _to_plan(d)
 

@@ -499,7 +499,7 @@ def install_completion(engine_cls):
         'create_purchase','create_sale','void_sale','return_sale','create_expense',
         'adjust_wallet','transfer_between_wallets','create_installment_plan',
         'collect_installment','pay_supplier','collect_customer','transfer_customer','exchange_sale',
-        'deliver_maintenance','use_maintenance_part','adjust_stock','transfer_stock',
+        'deliver_maintenance','use_maintenance_part','cancel_maintenance','adjust_stock','transfer_stock',
         'calculate_salary','pay_salary','close_day','reopen_day'
     )
     for _name in _atomic_names:

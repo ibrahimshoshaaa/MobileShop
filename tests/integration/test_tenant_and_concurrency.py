@@ -44,7 +44,7 @@ def test_concurrent_sync_upload_is_idempotent(tmp_path):
     sync.close()
 
 
-def test_processing_claim_is_never_auto_reclaimed(tmp_path):
+def test_stale_processing_claim_is_reclaimed(tmp_path):
     sync = SyncProtocol(tmp_path / "stuck.db")
     envelope = {"command_id": "stuck", "tenant_id": "t1", "branch_id": "b1", "payload": {"x": 1}}
     request_hash = __import__("hashlib").sha256(
@@ -64,9 +64,9 @@ def test_processing_claim_is_never_auto_reclaimed(tmp_path):
         executor=lambda _: calls.append("executed"),
     )
 
-    assert result["results"][0]["status"] == "PROCESSING"
+    assert result["results"][0]["status"] == "APPLIED"
     assert result["results"][0]["retryable"] is True
-    assert calls == []
+    assert calls == ["executed"]
     row = sync.db.execute(
         "SELECT status FROM sync_receipts WHERE tenant_id=? AND branch_id=? AND command_id=?",
         ("t1", "b1", "stuck"),

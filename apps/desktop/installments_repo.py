@@ -107,7 +107,7 @@ def list_plans() -> list[InstallmentPlan]:
 
 
 def create_plan(*, customer_id: str, customer_name: str, price: float, down_payment: float,
-                 rate_percent: float, term_months: int, sale_id: str | None = None) -> InstallmentPlan:
+                 rate_percent: float, term_months: int, sale_id: str | None = None, down_payment_method: str = "CASH") -> InstallmentPlan:
     calc = calculate(price=price, down_payment=down_payment, rate_percent=rate_percent, term_months=term_months)
     plan = InstallmentPlan(
         id=_new_id("plan"), sale_id=sale_id, customer_id=customer_id, customer_name=customer_name,

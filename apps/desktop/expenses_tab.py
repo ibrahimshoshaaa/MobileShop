@@ -7,8 +7,9 @@ from errors import AppError
 
 
 class ExpensesTab(ttk.Frame):
-    def __init__(self, master):
+    def __init__(self, master, repo=expenses_repo):
         super().__init__(master)
+        self.repo = repo
         self._build()
         self.reload()
 
@@ -32,24 +33,25 @@ class ExpensesTab(ttk.Frame):
 
     def reload(self):
         self.tree.delete(*self.tree.get_children())
-        method_labels = dict(expenses_repo.PAYMENT_METHODS)
-        for e in expenses_repo.list_expenses():
+        method_labels = dict(self.repo.PAYMENT_METHODS)
+        for e in self.repo.list_expenses():
             label = method_labels.get(e.method, e.method)
             self.tree.insert("", "end", iid=e.id, values=(
                 e.category, f"{e.amount:.2f}", label, e.created_at.strftime("%Y-%m-%d %H:%M"), e.note or "",
             ))
-        total = expenses_repo.total_for_today()
+        total = self.repo.total_for_today()
         self.total_label.config(text=f"إجمالي مصروفات اليوم: {total:.2f} ج.م")
 
     def _add(self):
-        window = ExpenseFormWindow(self)
+        window = ExpenseFormWindow(self, repo=self.repo)
         self.wait_window(window)
         self.reload()
 
 
 class ExpenseFormWindow(tk.Toplevel):
-    def __init__(self, master):
+    def __init__(self, master, repo=expenses_repo):
         super().__init__(master)
+        self.repo = repo
         self.title("إضافة مصروف")
         self.geometry("340x400")
         self._build()
@@ -59,7 +61,7 @@ class ExpenseFormWindow(tk.Toplevel):
         pad = {"padx": 12, "pady": 6}
 
         ttk.Label(self, text="التصنيف").pack(anchor="e", **pad)
-        self.category_var = tk.StringVar(value=expenses_repo.EXPENSE_CATEGORIES[0])
+        self.category_var = tk.StringVar(value=self.repo.EXPENSE_CATEGORIES[0])
         ttk.Combobox(self, textvariable=self.category_var, values=expenses_repo.EXPENSE_CATEGORIES, state="readonly").pack(fill="x", **pad)
 
         ttk.Label(self, text="المبلغ").pack(anchor="e", **pad)
@@ -67,7 +69,7 @@ class ExpenseFormWindow(tk.Toplevel):
         ttk.Entry(self, textvariable=self.amount_var).pack(fill="x", **pad)
 
         ttk.Label(self, text="دُفع من").pack(anchor="e", **pad)
-        self.method_var = tk.StringVar(value=expenses_repo.PAYMENT_METHODS[0][1])
+        self.method_var = tk.StringVar(value=self.repo.PAYMENT_METHODS[0][1])
         ttk.Combobox(self, textvariable=self.method_var, values=[label for _, label in expenses_repo.PAYMENT_METHODS], state="readonly").pack(fill="x", **pad)
 
         ttk.Label(self, text="ملاحظة (اختياري)").pack(anchor="e", **pad)
@@ -88,7 +90,7 @@ class ExpenseFormWindow(tk.Toplevel):
             return
         code = next(code for code, label in expenses_repo.PAYMENT_METHODS if label == self.method_var.get())
         try:
-            expenses_repo.add_expense(amount=amount, category=self.category_var.get(), method=code, note=self.note_var.get())
+            self.repo.add_expense(amount=amount, category=self.category_var.get(), method=code, note=self.note_var.get())
         except AppError as e:
             self.error_label.config(text=e.message)
             return

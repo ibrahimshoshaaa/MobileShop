@@ -168,15 +168,15 @@
 
 ## 7. الـ ERP correctness والعمليات المالية
 
-- 🟡 sales / returns / refunds accounting matrix: قيود void/return + settlement-safe refunds + credit returns أضيفت؛ يلزم استكمال mixed-payment matrix بعد نتيجة CI.
-- 🟡 purchases / supplier payments accounting matrix: تحقق المورد/الفرع/عدم تجاوز الرصيد أضيف؛ يلزم regression matrix كاملة.
-- 🟡 wallet / ledger invariants واختبارات الرصيد: commission والتحقق من رصيد المصدر مضافان؛ يلزم تثبيت نتيجة CI ثم توسيع closing/concurrency.
-- 🟡 installments accounting end-to-end: principal/interest posting أضيف مع regression test؛ يلزم اختبار حالات التقسيط المتعددة/الـrounding.
+- 🟢 sales / returns / refunds accounting matrix: void/return + discounted-return rounding + split-tender refunds + mixed paid/credit returns + settlement-safe wallet validation أصبحت مغطاة باختبارات مالية.
+- 🟢 purchases / supplier payments accounting matrix: تحقق المورد/الفرع/عدم تجاوز الرصيد + payable settlement/idempotency مغطاة باختبارات regression الحالية.
+- 🟢 wallet / ledger invariants: one-sided/two-decimal ledger validation، disabled-wallet guard، wallet balance checks، commission، atomic rollback واختبارات الرصيد كلها اجتازت CI.
+- 🟢 installments accounting end-to-end: principal/interest + down-payment posting + rounding + duplicate-plan prevention + collection regressions اجتازت CI.
 - ⬜ IMEI lifecycle كامل.
 - ⬜ branch transfer lifecycle.
 - ⬜ day closing / reopening rules.
-- ⬜ duplicate-command / concurrent-command tests على السيناريوهات المالية.
-- ⬜ تقارير مالية متسقة مع مصدر SQL المركزي.
+- 🟢 duplicate-command / concurrent-command safety: idempotency موجودة، والـfinancial commands أصبحت داخل transaction rollback boundary، واختبارات regression اجتازت CI.
+- ⬜ تقارير مالية متسقة مع مصدر SQL المركزي — بند تقارير/online workflows لاحق، وليس ضمن هذا الـphase.
 
 ---
 
@@ -212,7 +212,7 @@
 - 🟢 Pull Request #15 على فرع الإصلاح: CI نجح بالكامل (Python + Flutter analyze + security)، وProduction audit نجح. آخر `main` قبل الإصلاح كان `139 passed / 1 failed` بسبب توقع اختبار concurrency لحالة `PROCESSING` بينما التنفيذ الحالي يعيد `RETRYABLE`؛ تم تحديث الاختبار. Turso Integration نجح على `main`، بينما Turso Deep Integration 🟢 نجح بعد مواءمة اختبار Turso مع تصميم Option A ذي الاتصال المشترك؛ الاختبار يثبت idempotency وtenant isolation وsync cursor على Turso بدون إبقاء transaction تفاعلية مفتوحة أثناء انتظار عامل آخر. Staging smoke القديم فشل بـ401 في `/products`، ولم يعد يعمل تلقائياً على `main` بعد تعديل الـtrigger.
 
 ### P1
-- ⬜ إكمال ERP accounting invariants.
+- 🟢 إكمال ERP accounting invariants — Financial Phase مكتملة برمجياً، وCI + Production audit أخضران على PR #16.
 - ⬜ إكمال mobile/desktop online workflows.
 - ⬜ التقارير.
 - ⬜ الفروع والمستخدمون والصلاحيات UI.
@@ -238,10 +238,12 @@
 
 ## الحالة الحالية
 
-**Branch:** `fix/ci-staging-smoke-trigger`  
-**CI:** 🟢 PR #15 — Python + Flutter analyze + security passed  
-**Tests:** 🟢 PR #15 — Python tests passed، مع إضافة اختبار Online Sales endpoint  
-**Bandit:** 🟢 آخر run معروف passed  
-**pip-audit:** 🟢 آخر run معروف passed  
-**Production-ready:** ⬜ لا — يلزم CI جديد + staging/Turso operational verification  
+**PR #17:** Desktop Online operational workflows — customers, suppliers, expenses, installments, maintenance; specialized scoped reads for installment payments and maintenance parts. CI + security + production audit green. PR #17 is open and not merged.
+
+**Branch:** `feat/desktop-online-operational-workflows`  
+**CI:** 🟢 PR #17 — Python + Flutter analyze + security passed  
+**Tests:** 🟢 150 Python tests passed، 2 warnings  
+**Production audit:** 🟢 passed  
+**Financial Phase:** 🟢 مكتملة برمجياً على الفرع؛ يلزم دمج PR #16 فقط بعد المراجعة النهائية  
+**Production-ready:** ⬜ لا — staging/Turso operational verification وباقي P0 ما زالت مطلوبة  
 **Main:** لم يتم تعديله ضمن هذه الجولة.

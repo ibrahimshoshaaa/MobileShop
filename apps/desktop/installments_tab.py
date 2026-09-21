@@ -3,7 +3,8 @@ import tkinter as tk
 from tkinter import messagebox, ttk
 
 import installments_repo
-import sales_repo  # for the CASH/WALLET/CARD payment-method labels
+import sales_repo
+import customers_repo  # for the CASH/WALLET/CARD payment-method labels
 from customers_tab import CustomerPickerWindow
 from errors import AppError
 
@@ -13,8 +14,10 @@ COLLECTION_METHODS = [m for m in sales_repo.PAYMENT_METHODS if m[0] != "CREDIT"]
 
 
 class InstallmentsTab(ttk.Frame):
-    def __init__(self, master):
+    def __init__(self, master, repo=installments_repo, customers_repo_module=customers_repo):
         super().__init__(master)
+        self.repo = repo
+        self.customers_repo_module = customers_repo_module
         self._build()
         self.reload()
 
@@ -38,9 +41,9 @@ class InstallmentsTab(ttk.Frame):
 
     def reload(self):
         self.tree.delete(*self.tree.get_children())
-        self._plans = {p.id: p for p in installments_repo.list_plans()}
+        self._plans = {p.id: p for p in self.repo.list_plans()}
         for p in self._plans.values():
-            remaining = installments_repo.remaining(p.id)
+            remaining = self.repo.remaining(p.id)
             done = remaining <= 0.01
             self.tree.insert(
                 "", "end", iid=p.id,
@@ -50,7 +53,7 @@ class InstallmentsTab(ttk.Frame):
             )
 
     def _new_plan(self):
-        window = NewInstallmentPlanWindow(self)
+        window = NewInstallmentPlanWindow(self, repo=self.repo, customers_repo_module=self.customers_repo_module)
         self.wait_window(window)
         self.reload()
 
@@ -60,14 +63,16 @@ class InstallmentsTab(ttk.Frame):
             return
         plan = self._plans.get(selection[0])
         if plan:
-            window = PlanDetailWindow(self, plan)
+            window = PlanDetailWindow(self, plan, repo=self.repo)
             self.wait_window(window)
             self.reload()
 
 
 class NewInstallmentPlanWindow(tk.Toplevel):
-    def __init__(self, master):
+    def __init__(self, master, repo=installments_repo, customers_repo_module=customers_repo):
         super().__init__(master)
+        self.repo = repo
+        self.customers_repo_module = customers_repo_module
         self.customer = None
         self.title("خطة تقسيط جديدة")
         self.geometry("380x560")
@@ -86,8 +91,11 @@ class NewInstallmentPlanWindow(tk.Toplevel):
         self.down_var = tk.StringVar(value="0")
         self.rate_var = tk.StringVar(value="0")
         self.term_var = tk.StringVar(value="6")
+        self.sale_id_var = tk.StringVar()
+        self.down_method_var = tk.StringVar(value=COLLECTION_METHODS[0][1])
 
         for label, var in [
+            ("رقم الفاتورة المرتبطة", self.sale_id_var),
             ("السعر الإجمالي", self.price_var), ("المقدم", self.down_var),
             ("نسبة الزيادة %", self.rate_var), ("عدد الأشهر", self.term_var),
         ]:
@@ -95,6 +103,9 @@ class NewInstallmentPlanWindow(tk.Toplevel):
             entry = ttk.Entry(self, textvariable=var)
             entry.pack(fill="x", **pad)
             entry.bind("<KeyRelease>", lambda e: self._refresh_preview())
+
+        ttk.Label(self, text="طريقة دفع المقدم").pack(anchor="e", **pad)
+        ttk.Combobox(self, textvariable=self.down_method_var, values=[label for _, label in COLLECTION_METHODS], state="readonly").pack(fill="x", **pad)
 
         self.preview_label = ttk.Label(self, text="", justify="right")
         self.preview_label.pack(fill="x", padx=12, pady=10)
@@ -106,7 +117,7 @@ class NewInstallmentPlanWindow(tk.Toplevel):
         self._refresh_preview()
 
     def _pick_customer(self):
-        picker = CustomerPickerWindow(self)
+        picker = CustomerPickerWindow(self, repo=self.customers_repo_module)
         self.wait_window(picker)
         if picker.selected_customer:
             self.customer = picker.selected_customer
@@ -118,7 +129,7 @@ class NewInstallmentPlanWindow(tk.Toplevel):
     def _refresh_preview(self):
         try:
             price, down, rate, term = self._read_inputs()
-            calc = installments_repo.calculate(price=price, down_payment=down, rate_percent=rate, term_months=term)
+            calc = self.repo.calculate(price=price, down_payment=down, rate_percent=rate, term_months=term)
         except (ValueError, AppError):
             self.preview_label.config(text="أدخل بيانات صحيحة لعرض المعاينة")
             return
@@ -141,9 +152,11 @@ class NewInstallmentPlanWindow(tk.Toplevel):
             self.error_label.config(text="تأكد من إدخال كل الحقول بأرقام صحيحة.")
             return
         try:
-            installments_repo.create_plan(
+            self.repo.create_plan(
                 customer_id=self.customer.id, customer_name=self.customer.name,
                 price=price, down_payment=down, rate_percent=rate, term_months=term,
+                sale_id=self.sale_id_var.get().strip() or None,
+                down_payment_method=next(code for code, label in COLLECTION_METHODS if label == self.down_method_var.get()),
             )
         except AppError as e:
             self.error_label.config(text=e.message)
@@ -152,9 +165,10 @@ class NewInstallmentPlanWindow(tk.Toplevel):
 
 
 class PlanDetailWindow(tk.Toplevel):
-    def __init__(self, master, plan):
+    def __init__(self, master, plan, repo=installments_repo):
         super().__init__(master)
         self.plan = plan
+        self.repo = repo
         self.title(f"خطة تقسيط • {plan.customer_name}")
         self.geometry("420x520")
         self._build()
@@ -169,7 +183,7 @@ class PlanDetailWindow(tk.Toplevel):
         for widget in self.body.winfo_children():
             widget.destroy()
         plan = self.plan
-        remaining = installments_repo.remaining(plan.id)
+        remaining = self.repo.remaining(plan.id)
         done = remaining <= 0.01
         pad = {"padx": 12, "pady": 4}
 
@@ -185,7 +199,7 @@ class PlanDetailWindow(tk.Toplevel):
             ttk.Button(self.body, text="تحصيل قسط", command=self._collect).pack(**pad)
 
         ttk.Label(self.body, text="سجل التحصيل", font=("TkDefaultFont", 10, "bold")).pack(anchor="e", **pad)
-        payments = installments_repo.list_payments(plan.id)
+        payments = self.repo.list_payments(plan.id)
         if not payments:
             ttk.Label(self.body, text="لا توجد دفعات محصّلة بعد").pack(anchor="e", padx=20)
         for p in payments:
@@ -193,16 +207,17 @@ class PlanDetailWindow(tk.Toplevel):
             ttk.Label(self.body, text=f"{p.amount:.2f} ج.م • {label} • {p.paid_at.strftime('%Y-%m-%d %H:%M')}").pack(anchor="e", padx=20)
 
     def _collect(self):
-        remaining = installments_repo.remaining(self.plan.id)
-        dialog = CollectPaymentDialog(self, self.plan, remaining)
+        remaining = self.repo.remaining(self.plan.id)
+        dialog = CollectPaymentDialog(self, self.plan, remaining, repo=self.repo)
         self.wait_window(dialog)
         self._render()
 
 
 class CollectPaymentDialog(tk.Toplevel):
-    def __init__(self, master, plan, remaining):
+    def __init__(self, master, plan, remaining, repo=installments_repo):
         super().__init__(master)
         self.plan = plan
+        self.repo = repo
         self.remaining = remaining
         self.title("تحصيل قسط")
         self.geometry("300x260")
@@ -236,7 +251,7 @@ class CollectPaymentDialog(tk.Toplevel):
             return
         code = next(code for code, label in COLLECTION_METHODS if label == self.method_var.get())
         try:
-            installments_repo.collect_payment(plan_id=self.plan.id, amount=amount, method=code)
+            self.repo.collect_payment(plan_id=self.plan.id, amount=amount, method=code)
         except AppError as e:
             self.error_label.config(text=e.message)
             return

@@ -7,8 +7,9 @@ from errors import AppError
 
 
 class CustomersTab(ttk.Frame):
-    def __init__(self, master):
+    def __init__(self, master, repo=customers_repo):
         super().__init__(master)
+        self.repo = repo
         self._build()
         self.reload()
 
@@ -41,15 +42,15 @@ class CustomersTab(ttk.Frame):
         if not selection:
             messagebox.showinfo("تنبيه", "اختر عميلًا أولًا.")
             return None
-        return customers_repo.get_customer(selection[0])
+        return self.repo.get_customer(selection[0])
 
     def _add(self):
-        CustomerFormWindow(self, on_saved=self.reload)
+        CustomerFormWindow(self, on_saved=self.reload, repo=self.repo)
 
     def _edit_selected(self):
         customer = self._selected_customer()
         if customer:
-            CustomerFormWindow(self, existing=customer, on_saved=self.reload)
+            CustomerFormWindow(self, existing=customer, on_saved=self.reload, repo=self.repo)
 
 
 class CustomerFormWindow(tk.Toplevel):
@@ -108,6 +109,7 @@ class CustomerPickerWindow(tk.Toplevel):
         super().__init__(master)
         self.repo = repo
         self.selected_customer = None
+        self.repo = repo
         self.title("اختيار عميل")
         self.geometry("380x420")
         self._build()
@@ -133,7 +135,7 @@ class CustomerPickerWindow(tk.Toplevel):
         self._reload()
 
     def _reload(self):
-        self._customers = [c for c in customers_repo.list_customers(query=self.search_var.get()) if c.active]
+        self._customers = [c for c in self.repo.list_customers(query=self.search_var.get()) if c.active]
         self.listbox.delete(0, "end")
         for c in self._customers:
             self.listbox.insert("end", f"{c.name}  {('- ' + c.phone) if c.phone else ''}")

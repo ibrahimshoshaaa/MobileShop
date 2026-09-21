@@ -131,10 +131,19 @@ def install_completion(engine_cls):
             if t.status!='READY':raise DomainError('INVALID_INPUT','لا يمكن التسليم قبل READY.',{})
             price=M(final_price); pay=M(payment)
             if price<0 or pay<0 or pay>price:raise DomainError('INVALID_PAYMENT','قيمة الدفع غير صحيحة.',{})
-            self._wallet(wallet_id,ctx.branch_id)
+            if pay:
+                if not wallet_id:
+                    raise DomainError('INVALID_PAYMENT','يجب تحديد محفظة للسداد.',{})
+                self._wallet(wallet_id,ctx.branch_id)
+            if pay and self._balance(wallet_id) < pay:
+                raise DomainError('INSUFFICIENT_WALLET_BALANCE','رصيد المحفظة غير كافٍ.',{'wallet_id':wallet_id})
             nt=replace(t,status='DELIVERED',final_cost=price,payment=pay); self.maintenance.update(t.id,nt)
             if pay:self._put(self.ledger,LedgerEntry(f'{ticket_id}:wallet',ctx.branch_id,f'wallet:{wallet_id}','MAINTENANCE_PAYMENT',debit=pay,reference_id=ticket_id))
-            self._put(self.ledger,LedgerEntry(f'{ticket_id}:revenue',ctx.branch_id,'maintenance_revenue','MAINTENANCE',credit=price,reference_id=ticket_id))
+            receivable=M(price-pay)
+            if price:
+                self._put(self.ledger,LedgerEntry(f'{ticket_id}:revenue',ctx.branch_id,'maintenance_revenue','MAINTENANCE',credit=price,reference_id=ticket_id))
+            if receivable and t.customer_id:
+                self._put(self.ledger,LedgerEntry(f'{ticket_id}:receivable',ctx.branch_id,f'customer:{t.customer_id}','MAINTENANCE_RECEIVABLE',debit=receivable,reference_id=ticket_id))
             if t.parts_cost:
                 self._put(self.ledger,LedgerEntry(f'{ticket_id}:parts',ctx.branch_id,'maintenance_cost','MAINTENANCE_COGS',debit=t.parts_cost,reference_id=ticket_id))
                 self._put(self.ledger,LedgerEntry(f'{ticket_id}:inventory',ctx.branch_id,'inventory','MAINTENANCE_USE',credit=t.parts_cost,reference_id=ticket_id))
@@ -317,6 +326,48 @@ def install_completion(engine_cls):
             self._put(self.transfers,obj); self._audit(ctx,'CREATE_CUSTOMER_TRANSFER',ctx.command_id,{'amount':str(a),'commission':str(actual),'override':commission is not None}); self._processed[ctx.idempotency_key]=obj; return obj
     def report_rows(self,branch_id):
         r=self.reports_full(branch_id); return [{'metric':k,'value':v} for k,v in r.items() if not isinstance(v,(dict,list))]
+    def ledger_transaction_totals(self, reference_id, branch_id=None):
+        debit=D0; credit=D0
+        for entry in self.ledger.all():
+            ref=getattr(entry,'reference_id',None) if not isinstance(entry,dict) else entry.get('reference_id')
+            bid=getattr(entry,'branch_id',None) if not isinstance(entry,dict) else entry.get('branch_id')
+            if ref==reference_id and (branch_id is None or bid==branch_id):
+                debit += M(getattr(entry,'debit',D0) if not isinstance(entry,dict) else entry.get('debit',D0))
+                credit += M(getattr(entry,'credit',D0) if not isinstance(entry,dict) else entry.get('credit',D0))
+        return M(debit), M(credit)
+
+    def assert_ledger_balanced(self, reference_id, branch_id=None):
+        debit, credit = self.ledger_transaction_totals(reference_id, branch_id)
+        if debit != credit:
+            raise DomainError('LEDGER_OUT_OF_BALANCE','القيد المحاسبي غير متوازن.',{
+                'reference_id': reference_id, 'debit': str(debit), 'credit': str(credit)
+            })
+        return True
+
     engine_cls.transaction=transaction; engine_cls.collect_customer=collect_customer; engine_cls.transfer_customer=transfer_customer; engine_cls.report_rows=report_rows
+    engine_cls.ledger_transaction_totals=ledger_transaction_totals; engine_cls.assert_ledger_balanced=assert_ledger_balanced
+
+    # Financial commands are executed inside the same snapshot/rollback boundary.
+    # This prevents half-posted sales, returns, purchases, collections, or payroll
+    # when a later validation/persistence step raises an exception.
+    _atomic_names = (
+        'create_purchase','create_sale','void_sale','return_sale','create_expense',
+        'adjust_wallet','transfer_between_wallets','create_installment_plan',
+        'collect_installment','pay_supplier','collect_customer','transfer_customer',
+        'deliver_maintenance','use_maintenance_part','adjust_stock','transfer_stock',
+        'calculate_salary','pay_salary','close_day','reopen_day'
+    )
+    for _name in _atomic_names:
+        _original = getattr(engine_cls, _name, None)
+        if _original is None or getattr(_original, '_financial_atomic', False):
+            continue
+        def _make_atomic(original, name):
+            def _wrapped(self, *args, **kwargs):
+                return self.transaction(lambda: original(self, *args, **kwargs))
+            _wrapped.__name__ = name
+            _wrapped.__doc__ = original.__doc__
+            _wrapped._financial_atomic = True
+            return _wrapped
+        setattr(engine_cls, _name, _make_atomic(_original, _name))
 
     return engine_cls

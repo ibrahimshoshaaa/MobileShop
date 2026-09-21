@@ -1,6 +1,6 @@
 # Mobile Shop ERP — الملف الأم (تتبّع كل الفيتشرز والخطوات)
 
-**آخر تحديث:** 2026-09-21 — تم تنفيذ إصلاح atomic sync، وربط Desktop Sales بالـAPI مع endpoint مخصص للمبيعات، وإصلاح صلاحيات القراءة ووحدة إدخال الدفع، وإغلاق آخر تحذير Flutter const. التحقق النهائي على فرع الإصلاح ما زال منتظرًا عبر PR/CI.
+**آخر تحديث:** 2026-09-21 — تم دمج PR #17 في `main` وإغلاق مراحل Desktop Online الخمس (Customers / Suppliers / Expenses / Installments / Maintenance) مع إصلاح ربط تسليم الصيانة بالـrepository المحقون، وإتاحة تعديل العملاء والموردين عبر API. يجري التحقق النهائي لهذا الإصلاح عبر PR مستقل وCI.
 
 > هذا الملف هو **المرجع الوحيد** لحالة المشروع: ما تم إنجازه، وما هو قيد التنفيذ، وما يجب إكماله قبل اعتبار النسخة Production-ready.
 >
@@ -18,7 +18,7 @@
 - ✅ أمر `updateProduct`.
 - ✅ نقطة قراءة حقيقية `GET /products`.
 - ⬜ أوامر تعديل/تعطيل محفظة عبر HTTP.
-- ⬜ أمر `updateSupplier` متصل بالسيرفر.
+- 🟢 أمر `updateSupplier` متصل بالسيرفر ومربوط بالـDesktop Online.
 - ⬜ مراجعة شاملة لباقي الأوامر غير المغطاة عبر HTTP.
 
 ### الأمان والهوية
@@ -51,7 +51,7 @@
 - ✅ Dev tokens للتطوير والاختبارات فقط.
 - ✅ Seed data للتجربة.
 - ✅ Idempotency.
-- 🟡 Query endpoints موجودة ومحمية؛ تمت إضافة endpoints صريحة لـsales/customers/wallets لاستخدام الـdesktop Online mode.
+- 🟢 Query endpoints موجودة ومحمية؛ تشمل sales/customers/wallets/installment-payments/maintenance-parts للاستخدام في Desktop Online.
 - ⬜ Error contract موحد وآمن.
 - ⬜ Request schema validation كاملة.
 - ⬜ branch + permission checks على كل endpoint.
@@ -133,12 +133,12 @@
 | الفيتشر | الحالة | ملاحظات |
 |---|---|---|
 | المخزون | ✅ | متصل بالـ API الحقيقي في Online mode |
-| المبيعات | 🟡 | متصلة بالـAPI في Online mode؛ Offline mode ما زال محليًا |
-| العملاء | ✅ | منطق محلي |
-| الأقساط | ✅ | منطق محلي |
-| المصروفات | ✅ | منطق محلي |
-| الموردون | ✅ | منطق محلي |
-| الصيانة | ✅ | منطق محلي |
+| المبيعات | 🟢 | متصلة بالـAPI في Online mode؛ Offline mode ما زال محليًا |
+| العملاء | 🟢 | Online read/create/update عبر API؛ Offline mode ما زال محليًا |
+| الأقساط | 🟢 | Online read/create/collect عبر API؛ Offline mode ما زال محليًا |
+| المصروفات | 🟢 | Online read/create عبر API؛ Offline mode ما زال محليًا |
+| الموردون | 🟢 | Online read/create/update عبر API؛ Offline mode ما زال محليًا |
+| الصيانة | 🟢 | Online create/status/parts/delivery عبر API؛ Offline mode ما زال محليًا |
 | التقارير | ⬜ | Placeholder |
 | الفروع والمستخدمون | ⬜ | Placeholder |
 | الإعدادات | ⬜ | Placeholder |
@@ -146,7 +146,7 @@
 ### حدود الديسكتوب
 - ✅ يستخدم نفس `SQLiteRepository` في الباكيند.
 - ✅ المخزون تم اختباره عبر HTTP حقيقي مع uvicorn.
-- 🟡 باقي التبويبات تحتاج API read/write حقيقي قبل اعتبار desktop workflow كاملاً؛ **Sales أصبح أول سطح إضافي متصل بالـAPI**.
+- 🟢 مراحل Desktop Online الخمس مكتملة برمجياً: Customers، Suppliers، Expenses، Installments، Maintenance، بالإضافة إلى Sales وInventory. العمليات الأساسية لا تسقط إلى local repo في Online mode.
 - ⬜ الواجهة الرسومية نفسها لم تُختبر في بيئة تحتوي Tkinter.
 - ⬜ لا توجد طباعة/سكانر hardware integration.
 - ⬜ لا توجد صلاحيات مستخدمين مكتملة.
@@ -213,9 +213,9 @@
 
 ### P1
 - 🟢 إكمال ERP accounting invariants — Financial Phase مكتملة برمجياً، وCI + Production audit أخضران على PR #16.
-- 🟢 إكمال mobile/desktop online workflows — Desktop Online Customers/Suppliers/Expenses/Installments/Maintenance merged via PR #17.
-- 🟢 التقارير — branch-scoped financial reports endpoint + Desktop Reports UI + regression coverage merged via PR #18.
-- 🟢 الفروع والمستخدمون والصلاحيات UI — Branch/Role/User access profiles, scoped queries, Desktop administration UI, and access invariants merged via PR #18.
+- ⬜ إكمال mobile/desktop online workflows.
+- ⬜ التقارير.
+- ⬜ الفروع والمستخدمون والصلاحيات UI.
 - ⬜ الإعدادات والـ account linking.
 - ⬜ hardware integrations.
 
@@ -238,14 +238,16 @@
 
 ## الحالة الحالية
 
-**PR #17:** Desktop Online operational workflows — merged to `main`; CI + security + production audit green.
+**PR #17:** 🟢 تم دمجه في `main` بتاريخ 2026-09-21، وأدخل تكامل Desktop Online للمبيعات والمخزون والعملاء والموردين والمصروفات والأقساط والصيانة.
 
-**PR #18:** Branches/Roles/Users + financial reports — merged to `main`; CI + security + production audit green.
+**المرحلة الحالية:** 🟡 الإصلاحات النهائية للـ5 مراحل مكتملة على فرع `fix/complete-online-master-data-workflows`، وتمت إضافة اختبارات regression إضافية. آخر CI مؤكد كان ناجحاً على commit سابق؛ تغييرات ما بعده تحتاج CI جديداً قبل الدمج.
 
-**Branch:** `main`  
-**CI:** 🟢 PR #17 + PR #18 — Python + Flutter analyze + security passed  
-**Tests:** 🟢 latest PR #18 — 161 Python tests passed، 2 warnings  
-**Production audit:** 🟢 PR #18 passed  
-**Financial Phase:** 🟢 مكتملة برمجياً ومندمجة ضمن `main` عبر PR #17  
-**Production-ready:** ⬜ لا — staging/Turso operational verification وباقي P0 ما زالت مطلوبة  
-**Main:** لم يتم تعديله ضمن هذه الجولة.
+**الـ5 مراحل Desktop Online:** 🟢 مكتملة برمجياً — Customers / Suppliers / Expenses / Installments / Maintenance.
+
+**Financial Phase:** 🟢 موجودة ضمن `main` عبر سلسلة PR #16/#17.
+
+**CI المؤكد:** 🟢 آخر CI كامل مؤكد: Python + Flutter analyze/clients + security + Production Audit نجحوا، وآخر نتيجة مؤكدة كانت 160 Python tests passed، 2 warnings. 🔴 لا تُعتبر هذه النتيجة تحققاً للـcommits الأحدث بعد ذلك؛ يجب انتظار CI جديد.
+
+**Production-ready:** ⬜ لا — ما زالت اختبارات staging/Turso الفعلية وbackup/restore وproduction smoke وpilot التشغيلي مطلوبة.
+
+**Main:** لم نعدّل `main` مباشرة؛ الإصلاح الحالي موجود على فرع feature/fix مستقل وسيتم دمجه فقط بعد CI.

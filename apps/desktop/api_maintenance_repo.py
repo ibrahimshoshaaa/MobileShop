@@ -43,7 +43,7 @@ def advance_status(ticket_id):
 def cancel_ticket(ticket_id): return _to_ticket(_client.command(f"cmd-mnt-cancel-{uuid.uuid4().hex[:12]}","cancelMaintenance",{"ticket_id":ticket_id}))
 
 def list_parts_used(ticket_id):
-    rows=_client.get_entity(f"maintenance-parts/{ticket_id}")
+    rows=[x for x in _client.get_entity("maintenance-parts") if x.get("ticket_id")==ticket_id]
     return [MaintenancePartUsage(id=x["id"],ticket_id=x["ticket_id"],product_id=x["product_id"],product_name=x.get("product_name",x["product_id"]),quantity=int(float(x["quantity"])),cost=float(x["cost"]),used_at=datetime.fromisoformat(x["used_at"].replace("Z","+00:00"))) for x in rows]
 
 def use_part(*,ticket_id,product_id,product_name,quantity,cost):

@@ -29,8 +29,8 @@ def main() -> int:
     uid = required("FIREBASE_STAGING_UID")
 
     if not firebase_admin._apps:
-        service_account = json.loads(raw)
-        firebase_admin.initialize_app(credentials.Certificate(service_account))
+        firebase_service_account_data = json.loads(raw)
+        firebase_admin.initialize_app(credentials.Certificate(firebase_service_account_data))
 
     app = firebase_admin.get_app()
     service_account_data = json.loads(raw)

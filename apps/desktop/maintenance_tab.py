@@ -3,7 +3,9 @@ import tkinter as tk
 from tkinter import messagebox, ttk
 
 import maintenance_repo
-import sales_repo  # for PAYMENT_METHODS labels on delivery
+import sales_repo
+import customers_repo
+import inventory_repo  # for PAYMENT_METHODS labels on delivery
 from customers_tab import CustomerPickerWindow
 from errors import AppError
 from inventory_tab import ProductPickerWindow
@@ -109,7 +111,7 @@ class NewTicketWindow(tk.Toplevel):
             self.error_label.config(text="يجب اختيار عميل.")
             return
         try:
-            maintenance_repo.create_ticket(
+            self.repo.create_ticket(
                 customer_id=self.customer.id, customer_name=self.customer.name,
                 device=self.device_var.get(), problem=self.problem_text.get("1.0", "end").strip(),
                 imei=self.imei_var.get(),
@@ -136,9 +138,8 @@ class TicketDetailWindow(tk.Toplevel):
     def _render(self):
         for widget in self.body.winfo_children():
             widget.destroy()
-        ticket = next(t for t in maintenance_repo.list_tickets() if t.id == self.ticket_id)
+        ticket = next(t for t in self.repo.list_tickets() if t.id == self.ticket_id)
         self.ticket = ticket
-        self.repo = repo
         pad = {"padx": 12, "pady": 4}
 
         ttk.Label(self.body, text=f"الجهاز: {ticket.device}").pack(anchor="e", **pad)
@@ -152,7 +153,7 @@ class TicketDetailWindow(tk.Toplevel):
         status_bar.pack(fill="x", **pad)
         ttk.Label(status_bar, text=f"الحالة: {ticket.status_label}", font=("TkDefaultFont", 10, "bold")).pack(side="right")
         if ticket.is_open and ticket.next_status:
-            next_label = maintenance_repo.STATUS_LABELS[ticket.next_status]
+            next_label = self.repo.STATUS_LABELS[ticket.next_status]
             ttk.Button(status_bar, text=f"التالي: {next_label}", command=self._advance).pack(side="left")
 
         if ticket.is_open:
@@ -165,7 +166,7 @@ class TicketDetailWindow(tk.Toplevel):
         if ticket.is_open:
             ttk.Button(parts_bar, text="إضافة قطعة", command=self._add_part).pack(side="left")
 
-        parts = maintenance_repo.list_parts_used(ticket.id)
+        parts = self.repo.list_parts_used(ticket.id)
         if not parts:
             ttk.Label(self.body, text="لا توجد قطع مستخدمة بعد").pack(anchor="e", padx=20)
         for p in parts:
@@ -184,7 +185,7 @@ class TicketDetailWindow(tk.Toplevel):
 
     def _advance(self):
         try:
-            maintenance_repo.advance_status(self.ticket_id)
+            self.repo.advance_status(self.ticket_id)
         except AppError as e:
             messagebox.showerror("خطأ", e.message)
         self._render()
@@ -193,7 +194,7 @@ class TicketDetailWindow(tk.Toplevel):
         if not messagebox.askyesno("تأكيد", "هل تريد إلغاء طلب الصيانة هذا؟"):
             return
         try:
-            maintenance_repo.cancel_ticket(self.ticket_id)
+            self.repo.cancel_ticket(self.ticket_id)
         except AppError as e:
             messagebox.showerror("خطأ", e.message)
         self._render()
@@ -208,7 +209,7 @@ class TicketDetailWindow(tk.Toplevel):
         if not quantity:
             return
         try:
-            maintenance_repo.use_part(
+            self.repo.use_part(
                 ticket_id=self.ticket_id, product_id=product.id, product_name=product.name,
                 quantity=quantity, cost=product.default_cost,
             )

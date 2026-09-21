@@ -429,8 +429,6 @@ def install_completion(engine_cls):
                 self._put(self.ledger,LedgerEntry(f'{ctx.command_id}:destination',ctx.branch_id,f'wallet:{destination_wallet}','CUSTOMER_TRANSFER_OUT',credit=a+actual,reference_id=ctx.command_id))
             else:
                 raise DomainError('INVALID_INPUT','تحويل العميل يجب أن يكون بين محفظة نقدية ومحفظة رقمية.',{})
-            else:
-                raise DomainError('INVALID_INPUT','تحويل العميل يجب أن يكون بين محفظة نقدية ومحفظة رقمية.',{})
             if actual:
                 self._put(self.ledger,LedgerEntry(f'{ctx.command_id}:commission',ctx.branch_id,'transfer_commission','TRANSFER_COMMISSION',credit=actual,reference_id=ctx.command_id))
             obj={'id':ctx.command_id,'type':'CUSTOMER_TRANSFER','source_wallet_id':source_wallet,'destination_wallet_id':destination_wallet,'amount':a,'default_commission':default,'commission':actual,'override':commission is not None,'override_reason':reason}

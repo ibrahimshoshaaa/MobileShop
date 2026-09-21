@@ -434,6 +434,9 @@ class ERPCommandEngine:
             if down:
                 self._put(self.ledger,LedgerEntry(f'{plan.id}:down:wallet',_ctx(command).branch_id,f'wallet:{down_payment_wallet_id}','INSTALLMENT_DOWN_PAYMENT',debit=down,reference_id=plan.id))
                 self._put(self.ledger,LedgerEntry(f'{plan.id}:down:customer',_ctx(command).branch_id,f'customer:{customer_id}','INSTALLMENT_DOWN_PAYMENT',credit=down,reference_id=plan.id))
+            if inc:
+                self._put(self.ledger,LedgerEntry(f'{plan.id}:interest:customer',_ctx(command).branch_id,f'customer:{customer_id}','INSTALLMENT_INTEREST_ACCRUAL',debit=inc,reference_id=plan.id))
+                self._put(self.ledger,LedgerEntry(f'{plan.id}:interest:income',_ctx(command).branch_id,'installment_interest','INSTALLMENT_INTEREST_ACCRUAL',credit=inc,reference_id=plan.id))
             self._audit(_ctx(command),'CREATE_INSTALLMENT',plan.id,{'total_due':str(due),'down_payment':str(down)})
             self._processed[_ctx(command).idempotency_key]=plan; return plan
 

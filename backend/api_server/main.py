@@ -180,7 +180,7 @@ _QUERY_REPOS = {
     "products": "products", "customers": "customers", "suppliers": "suppliers",
     "sales": "sales", "purchases": "purchases", "expenses": "expenses",
     "maintenance": "maintenance", "installments": "installments", "wallets": "wallets",
-    "ledger": "ledger", "audit": "audit", "employees": "employees", "installment-payments": "installment_payments", "maintenance-parts": "maintenance_parts",
+    "ledger": "ledger", "audit": "audit", "employees": "employees", "installment-payments": "installment_payments", "maintenance-parts": "maintenance_parts", "branches": "branches", "users": "users", "roles": "roles",
 }
 
 @app.get("/sales")
@@ -234,7 +234,7 @@ def query_endpoint(request: Request, entity: str, branch_id: str = "LOCAL_BRANCH
         "purchases": "purchases.read", "expenses": "expenses.read",
         "maintenance": "maintenance.read", "installments": "installments.read",
         "wallets": "wallets.read", "ledger": "accounting.read",
-        "audit": "audit.read", "employees": "employees.read", "installment-payments": "installments.read", "maintenance-parts": "maintenance.read",
+        "audit": "audit.read", "employees": "employees.read", "installment-payments": "installments.read", "maintenance-parts": "maintenance.read", "branches": "branches.read", "users": "users.read", "roles": "roles.read",
     }
     required_permission = permission_by_entity[entity]
     if required_permission not in claims.get("permissions", ()):

@@ -274,7 +274,7 @@ def test_installment_collection_cannot_overdraw_wallet():
     )
     with pytest.raises(DomainError) as exc:
         e.collect_installment(
-            ctx("collect-overdraw", {"installments.collect"}), plan.id, Decimal("5000"), "cash",
+            ctx("collect-overdraw", {"installments.collect"}), plan.id, Decimal("5001"), "cash",
         )
     assert exc.value.code == "INSUFFICIENT_WALLET_BALANCE"
 

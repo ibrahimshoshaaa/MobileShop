@@ -3,7 +3,8 @@ import tkinter as tk
 from tkinter import messagebox, ttk
 
 import installments_repo
-import sales_repo  # for the CASH/WALLET/CARD payment-method labels
+import sales_repo
+import customers_repo  # for the CASH/WALLET/CARD payment-method labels
 from customers_tab import CustomerPickerWindow
 from errors import AppError
 
@@ -42,7 +43,7 @@ class InstallmentsTab(ttk.Frame):
         self.tree.delete(*self.tree.get_children())
         self._plans = {p.id: p for p in self.repo.list_plans()}
         for p in self._plans.values():
-            remaining = installments_repo.remaining(p.id)
+            remaining = self.repo.remaining(p.id)
             done = remaining <= 0.01
             self.tree.insert(
                 "", "end", iid=p.id,
@@ -90,8 +91,10 @@ class NewInstallmentPlanWindow(tk.Toplevel):
         self.down_var = tk.StringVar(value="0")
         self.rate_var = tk.StringVar(value="0")
         self.term_var = tk.StringVar(value="6")
+        self.sale_id_var = tk.StringVar()
 
         for label, var in [
+            ("رقم الفاتورة المرتبطة", self.sale_id_var),
             ("السعر الإجمالي", self.price_var), ("المقدم", self.down_var),
             ("نسبة الزيادة %", self.rate_var), ("عدد الأشهر", self.term_var),
         ]:
@@ -122,7 +125,7 @@ class NewInstallmentPlanWindow(tk.Toplevel):
     def _refresh_preview(self):
         try:
             price, down, rate, term = self._read_inputs()
-            calc = installments_repo.calculate(price=price, down_payment=down, rate_percent=rate, term_months=term)
+            calc = self.repo.calculate(price=price, down_payment=down, rate_percent=rate, term_months=term)
         except (ValueError, AppError):
             self.preview_label.config(text="أدخل بيانات صحيحة لعرض المعاينة")
             return
@@ -145,9 +148,10 @@ class NewInstallmentPlanWindow(tk.Toplevel):
             self.error_label.config(text="تأكد من إدخال كل الحقول بأرقام صحيحة.")
             return
         try:
-            installments_repo.create_plan(
+            self.repo.create_plan(
                 customer_id=self.customer.id, customer_name=self.customer.name,
                 price=price, down_payment=down, rate_percent=rate, term_months=term,
+                sale_id=self.sale_id_var.get().strip() or None,
             )
         except AppError as e:
             self.error_label.config(text=e.message)
@@ -174,7 +178,7 @@ class PlanDetailWindow(tk.Toplevel):
         for widget in self.body.winfo_children():
             widget.destroy()
         plan = self.plan
-        remaining = installments_repo.remaining(plan.id)
+        remaining = self.repo.remaining(plan.id)
         done = remaining <= 0.01
         pad = {"padx": 12, "pady": 4}
 
@@ -190,7 +194,7 @@ class PlanDetailWindow(tk.Toplevel):
             ttk.Button(self.body, text="تحصيل قسط", command=self._collect).pack(**pad)
 
         ttk.Label(self.body, text="سجل التحصيل", font=("TkDefaultFont", 10, "bold")).pack(anchor="e", **pad)
-        payments = installments_repo.list_payments(plan.id)
+        payments = self.repo.list_payments(plan.id)
         if not payments:
             ttk.Label(self.body, text="لا توجد دفعات محصّلة بعد").pack(anchor="e", padx=20)
         for p in payments:
@@ -198,7 +202,7 @@ class PlanDetailWindow(tk.Toplevel):
             ttk.Label(self.body, text=f"{p.amount:.2f} ج.م • {label} • {p.paid_at.strftime('%Y-%m-%d %H:%M')}").pack(anchor="e", padx=20)
 
     def _collect(self):
-        remaining = installments_repo.remaining(self.plan.id)
+        remaining = self.repo.remaining(self.plan.id)
         dialog = CollectPaymentDialog(self, self.plan, remaining, repo=self.repo)
         self.wait_window(dialog)
         self._render()
@@ -242,7 +246,7 @@ class CollectPaymentDialog(tk.Toplevel):
             return
         code = next(code for code, label in COLLECTION_METHODS if label == self.method_var.get())
         try:
-            installments_repo.collect_payment(plan_id=self.plan.id, amount=amount, method=code)
+            self.repo.collect_payment(plan_id=self.plan.id, amount=amount, method=code)
         except AppError as e:
             self.error_label.config(text=e.message)
             return

@@ -1,7 +1,7 @@
 from shared.contracts.errors import DomainError
 
 def dispatch(engine, name, command, **payload):
-    mapping={'createSale':'create_sale','returnSale':'return_sale','voidSale':'void_sale','createPurchase':'create_purchase','paySupplier':'pay_supplier','createExpense':'create_expense','createTransfer':'transfer_customer','transferBetweenWallets':'transfer_between_wallets','createInstallmentPlan':'create_installment_plan','collectInstallment':'collect_installment','createMaintenanceTicket':'create_maintenance_ticket','useMaintenancePart':'use_maintenance_part','deliverMaintenanceTicket':'deliver_maintenance','adjustStock':'adjust_stock','transferStock':'transfer_stock','closeDay':'close_day','adjustWallet':'adjust_wallet','changePermission':'set_permission','collectCustomer':'collect_customer','createProduct':'create_product','updateProduct':'update_product','createCustomer':'create_customer','createSupplier':'create_supplier','createWallet':'create_wallet','createBranch':'create_branch','createRole':'create_role','createUserProfile':'create_user_profile','updateUserAccess':'update_user_access'}
+    mapping={'createSale':'create_sale','returnSale':'return_sale','voidSale':'void_sale','createPurchase':'create_purchase','paySupplier':'pay_supplier','createExpense':'create_expense','createTransfer':'transfer_customer','transferBetweenWallets':'transfer_between_wallets','createInstallmentPlan':'create_installment_plan','collectInstallment':'collect_installment','createMaintenanceTicket':'create_maintenance_ticket','useMaintenancePart':'use_maintenance_part','deliverMaintenanceTicket':'deliver_maintenance','adjustStock':'adjust_stock','transferStock':'transfer_stock','closeDay':'close_day','adjustWallet':'adjust_wallet','changePermission':'set_permission','collectCustomer':'collect_customer','createProduct':'create_product','updateProduct':'update_product','createCustomer':'create_customer','updateCustomer':'update_customer','createSupplier':'create_supplier','updateSupplier':'update_supplier','createWallet':'create_wallet','createBranch':'create_branch','createRole':'create_role','createUserProfile':'create_user_profile','updateUserAccess':'update_user_access'}
     fn=mapping.get(name)
     if not fn or not hasattr(engine,fn): raise DomainError('INVALID_INPUT','الأمر غير مدعوم.',{'command':name})
     # Some commands have richer immutable contracts than a bare context.
@@ -61,6 +61,11 @@ def dispatch(engine, name, command, **payload):
             'role_id': payload.get('role_id'),
             'permissions': tuple(payload.get('permissions', ())),
         }
+    elif name in ('updateCustomer', 'updateSupplier'):
+        entity_id = payload.get('customer_id') if name == 'updateCustomer' else payload.get('supplier_id')
+        changes = dict(payload.get('changes', {}))
+        payload = ({'customer_id': entity_id, **changes} if name == 'updateCustomer'
+                   else {'supplier_id': entity_id, **changes})
     elif name == 'createWallet':
         # branch_id defaults to the caller's own branch and, even if a
         # client explicitly supplies a different one, create_wallet() in

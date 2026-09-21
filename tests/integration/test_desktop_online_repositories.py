@@ -10,7 +10,7 @@ from pathlib import Path
 import sys
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "apps" / "desktop"))
 
-from apps.desktop import api_expenses_repo, api_installments_repo, api_maintenance_repo, api_suppliers_repo
+from apps.desktop import api_customers_repo, api_expenses_repo, api_installments_repo, api_maintenance_repo, api_suppliers_repo
 
 
 class FakeClient:
@@ -109,3 +109,80 @@ def test_online_maintenance_zero_payment_does_not_require_wallet(monkeypatch):
 
     assert fake.calls[0][1] == "deliverMaintenanceTicket"
     assert fake.calls[0][2]["wallet_id"] is None
+
+
+def test_online_customer_update_uses_command(monkeypatch):
+    fake = FakeClient()
+    fake.command_result = {"id": "c1", "name": "Updated", "phone": "0111", "active": False}
+    monkeypatch.setattr(api_customers_repo, "_client", fake)
+
+    customer = api_customers_repo.Customer(id="c1", name="Updated", phone="0111", active=False)
+    updated = api_customers_repo.update_customer(customer)
+
+    assert updated.id == "c1"
+    assert fake.calls[0][1] == "updateCustomer"
+    assert fake.calls[0][2] == {
+        "customer_id": "c1",
+        "changes": {"name": "Updated", "phone": "0111", "active": False},
+    }
+
+
+def test_online_supplier_update_uses_command(monkeypatch):
+    fake = FakeClient()
+    fake.command_result = {"id": "s1", "name": "Updated", "phone": "0111", "active": False}
+    monkeypatch.setattr(api_suppliers_repo, "_client", fake)
+
+    supplier = api_suppliers_repo.Supplier(id="s1", name="Updated", phone="0111", active=False)
+    updated = api_suppliers_repo.update_supplier(supplier)
+
+    assert updated.id == "s1"
+    assert fake.calls[0][1] == "updateSupplier"
+    assert fake.calls[0][2] == {
+        "supplier_id": "s1",
+        "changes": {"name": "Updated", "phone": "0111", "active": False},
+    }
+
+
+def test_online_maintenance_delivery_uses_injected_repo():
+    from apps.desktop.maintenance_tab import DeliverDialog
+
+    class DummyVar:
+        def __init__(self, value):
+            self.value = value
+        def get(self):
+            return self.value
+
+    class DummyLabel:
+        def config(self, **kwargs):
+            raise AssertionError(kwargs)
+
+    class FakeRepo:
+        def __init__(self):
+            self.calls = []
+        def deliver_ticket(self, **kwargs):
+            self.calls.append(kwargs)
+
+    class DummyDialog:
+        def __init__(self):
+            self.ticket = type("Ticket", (), {"id": "m1"})()
+            self.repo = FakeRepo()
+            self.price_var = DummyVar("100")
+            self.payment_var = DummyVar("50")
+            self.method_var = DummyVar("نقدي")
+            self.error_label = DummyLabel()
+            self.destroyed = False
+        def destroy(self):
+            self.destroyed = True
+
+    dummy = DummyDialog()
+    original_methods = __import__("apps.desktop.maintenance_tab", fromlist=["sales_repo"]).sales_repo.PAYMENT_METHODS
+    expected_code = next(code for code, label in original_methods if label == "نقدي")
+    DeliverDialog._submit(dummy)
+
+    assert dummy.repo.calls == [{
+        "ticket_id": "m1",
+        "final_price": 100.0,
+        "payment": 50.0,
+        "method": expected_code,
+    }]
+    assert dummy.destroyed is True

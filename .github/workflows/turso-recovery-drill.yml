@@ -32,7 +32,8 @@ jobs:
           TURSO_SOURCE_DB: mobile-shop-staging
         run: |
           set -euo pipefail
-          export PATH="$HOME/.turso/bin:$PATH"
+          export PATH="$HOME/.turso:$PATH"
+          command -v turso
           timestamp="$(date -u -d '2 minutes ago' '+%Y-%m-%dT%H:%M:%SZ')"
           target="mobile-shop-recovery-${GITHUB_RUN_ID}"
           cleanup() {

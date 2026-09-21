@@ -92,6 +92,7 @@ class NewInstallmentPlanWindow(tk.Toplevel):
         self.rate_var = tk.StringVar(value="0")
         self.term_var = tk.StringVar(value="6")
         self.sale_id_var = tk.StringVar()
+        self.down_method_var = tk.StringVar(value=COLLECTION_METHODS[0][1])
 
         for label, var in [
             ("رقم الفاتورة المرتبطة", self.sale_id_var),
@@ -102,6 +103,9 @@ class NewInstallmentPlanWindow(tk.Toplevel):
             entry = ttk.Entry(self, textvariable=var)
             entry.pack(fill="x", **pad)
             entry.bind("<KeyRelease>", lambda e: self._refresh_preview())
+
+        ttk.Label(self, text="طريقة دفع المقدم").pack(anchor="e", **pad)
+        ttk.Combobox(self, textvariable=self.down_method_var, values=[label for _, label in COLLECTION_METHODS], state="readonly").pack(fill="x", **pad)
 
         self.preview_label = ttk.Label(self, text="", justify="right")
         self.preview_label.pack(fill="x", padx=12, pady=10)
@@ -152,6 +156,7 @@ class NewInstallmentPlanWindow(tk.Toplevel):
                 customer_id=self.customer.id, customer_name=self.customer.name,
                 price=price, down_payment=down, rate_percent=rate, term_months=term,
                 sale_id=self.sale_id_var.get().strip() or None,
+                down_payment_method=next(code for code, label in COLLECTION_METHODS if label == self.down_method_var.get()),
             )
         except AppError as e:
             self.error_label.config(text=e.message)

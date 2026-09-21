@@ -26,9 +26,15 @@ def request(url: str, token: str, method: str = "GET", body: dict | None = None)
 
 
 def main() -> int:
-    base = os.environ["STAGING_API_URL"].rstrip("/")
-    token = os.environ["STAGING_BEARER_TOKEN"]
-    branch = os.environ["STAGING_BRANCH_ID"]
+    required = ("STAGING_API_URL", "STAGING_BEARER_TOKEN", "STAGING_BRANCH_ID")
+    missing = [name for name in required if not os.environ.get(name, "").strip()]
+    if missing:
+        raise RuntimeError("missing required staging configuration: " + ", ".join(missing))
+    base = os.environ["STAGING_API_URL"].strip().rstrip("/")
+    token = os.environ["STAGING_BEARER_TOKEN"].strip()
+    branch = os.environ["STAGING_BRANCH_ID"].strip()
+    if not base.startswith(("https://", "http://")):
+        raise RuntimeError("STAGING_API_URL must start with http:// or https://")
     status, health = request(f"{base}/health", token)
     if status != 200 or health.get("status") != "ok":
         raise RuntimeError(f"health check failed: {status} {health}")

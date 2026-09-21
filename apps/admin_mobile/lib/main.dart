@@ -65,14 +65,120 @@ class _DashboardShellState extends State<DashboardShell> {
   }
 }
 
-class DashboardPage extends StatelessWidget { const DashboardPage({super.key});
-  @override Widget build(BuildContext context) => ListView(padding: const EdgeInsets.all(16), children: [
-    Wrap(spacing: 12, runSpacing: 12, children: const [Metric('مبيعات اليوم', '12,450 ج.م', Icons.trending_up), Metric('صافي الربح', '3,120 ج.م', Icons.account_balance_wallet), Metric('فواتير اليوم', '28', Icons.receipt), Metric('منتجات منخفضة', '7', Icons.warning_amber)]),
-    const SizedBox(height: 20), const Text('اختصارات سريعة', style: TextStyle(fontSize: 19, fontWeight: FontWeight.bold)),
-    Wrap(spacing: 8, children: ['فاتورة بيع', 'إضافة منتج', 'تحصيل قسط', 'مصروف جديد', 'تقفيل اليوم'].map((x) => ActionChip(label: Text(x), onPressed: () {})).toList()),
-    const SizedBox(height: 20), const Card(child: ListTile(leading: Icon(Icons.cloud_done), title: Text('حالة المزامنة'), subtitle: Text('الوضع الحالي: Offline • 0 عمليات معلقة'))),
-  ]);
+class DashboardPage extends StatelessWidget {
+  const DashboardPage({super.key});
+
+  @override
+  Widget build(BuildContext context) => ListView(
+    padding: const EdgeInsets.all(16),
+    children: [
+      const Wrap(
+        spacing: 12,
+        runSpacing: 12,
+        children: [
+          Metric('مبيعات اليوم', '12,450 ج.م', Icons.trending_up),
+          Metric('صافي الربح', '3,120 ج.م', Icons.account_balance_wallet),
+          Metric('فواتير اليوم', '28', Icons.receipt),
+          Metric('منتجات منخفضة', '7', Icons.warning_amber),
+        ],
+      ),
+      const SizedBox(height: 20),
+      const Text('اختصارات سريعة', style: TextStyle(fontSize: 19, fontWeight: FontWeight.bold)),
+      Wrap(
+        spacing: 8,
+        children: ['فاتورة بيع', 'إضافة منتج', 'تحصيل قسط', 'مصروف جديد', 'تقفيل اليوم']
+            .map((x) => ActionChip(label: Text(x), onPressed: () {}))
+            .toList(),
+      ),
+      const SizedBox(height: 20),
+      const Card(
+        child: ListTile(
+          leading: Icon(Icons.cloud_done),
+          title: Text('حالة المزامنة'),
+          subtitle: Text('الوضع الحالي: Offline • 0 عمليات معلقة'),
+        ),
+      ),
+    ],
+  );
 }
-class Metric extends StatelessWidget { final String title, value; final IconData icon; const Metric(this.title,this.value,this.icon,{super.key}); @override Widget build(BuildContext context)=>SizedBox(width: 160, child: Card(child: Padding(padding: const EdgeInsets.all(14), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children:[Icon(icon), const SizedBox(height:8), Text(title), Text(value, style: const TextStyle(fontSize:18,fontWeight:FontWeight.bold))])))); }
-class SettingsPage extends StatelessWidget { const SettingsPage({super.key}); @override Widget build(BuildContext context)=>ListView(padding:const EdgeInsets.all(16),children:[SwitchListTile(value:false,onChanged:(_){},title:const Text('تفعيل Online'),subtitle:const Text('ربط الحساب بالسيرفر المركزي')),const ListTile(leading:Icon(Icons.account_circle),title:const Text('حساب الشركة'),subtitle:const Text('تسجيل الدخول وربط الفروع')),const ListTile(leading:Icon(Icons.backup),title:const Text('النسخ الاحتياطي'),subtitle:const Text('إعدادات النسخ والاسترجاع')),const ListTile(leading:Icon(Icons.security),title:const Text('الأمان والصلاحيات'),subtitle:const Text('المستخدمون والأدوار وسجل التدقيق'))]); }
-class GenericPage extends StatelessWidget { final String title; final IconData icon; const GenericPage({required this.title,required this.icon,super.key}); @override Widget build(BuildContext context)=>Center(child:Column(mainAxisAlignment:MainAxisAlignment.center,children:[Icon(icon,size:72),const SizedBox(height:12),Text(title,style:const TextStyle(fontSize:25,fontWeight:FontWeight.bold)),const SizedBox(height:8),const Text('الشاشة الأساسية جاهزة للربط بطبقة Commands الخلفية'),const SizedBox(height:20),ElevatedButton(onPressed:(){},child:const Text('إضافة جديد'))])); }
+
+class Metric extends StatelessWidget {
+  final String title, value;
+  final IconData icon;
+
+  const Metric(this.title, this.value, this.icon, {super.key});
+
+  @override
+  Widget build(BuildContext context) => SizedBox(
+    width: 160,
+    child: Card(
+      child: Padding(
+        padding: const EdgeInsets.all(14),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Icon(icon),
+            const SizedBox(height: 8),
+            Text(title),
+            Text(value, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+          ],
+        ),
+      ),
+    ),
+  );
+}
+
+class SettingsPage extends StatelessWidget {
+  const SettingsPage({super.key});
+
+  @override
+  Widget build(BuildContext context) => ListView(
+    padding: const EdgeInsets.all(16),
+    children: [
+      SwitchListTile(
+        value: false,
+        onChanged: (_) {},
+        title: const Text('تفعيل Online'),
+        subtitle: const Text('ربط الحساب بالسيرفر المركزي'),
+      ),
+      const ListTile(
+        leading: Icon(Icons.account_circle),
+        title: Text('حساب الشركة'),
+        subtitle: Text('تسجيل الدخول وربط الفروع'),
+      ),
+      const ListTile(
+        leading: Icon(Icons.backup),
+        title: Text('النسخ الاحتياطي'),
+        subtitle: Text('إعدادات النسخ والاسترجاع'),
+      ),
+      const ListTile(
+        leading: Icon(Icons.security),
+        title: Text('الأمان والصلاحيات'),
+        subtitle: Text('المستخدمون والأدوار وسجل التدقيق'),
+      ),
+    ],
+  );
+}
+
+class GenericPage extends StatelessWidget {
+  final String title;
+  final IconData icon;
+
+  const GenericPage({required this.title, required this.icon, super.key});
+
+  @override
+  Widget build(BuildContext context) => Center(
+    child: Column(
+      mainAxisAlignment: MainAxisAlignment.center,
+      children: [
+        Icon(icon, size: 72),
+        const SizedBox(height: 12),
+        Text(title, style: const TextStyle(fontSize: 25, fontWeight: FontWeight.bold)),
+        const SizedBox(height: 8),
+        const Text('الشاشة الأساسية جاهزة للربط بطبقة Commands الخلفية'),
+        const SizedBox(height: 20),
+        ElevatedButton(onPressed: () {}, child: const Text('إضافة جديد')),
+      ],
+    ),
+  );
+}

@@ -213,9 +213,9 @@
 
 ### P1
 - 🟢 إكمال ERP accounting invariants — Financial Phase مكتملة برمجياً، وCI + Production audit أخضران على PR #16.
-- ⬜ إكمال mobile/desktop online workflows.
-- ⬜ التقارير.
-- ⬜ الفروع والمستخدمون والصلاحيات UI.
+- 🟢 إكمال mobile/desktop online workflows — Desktop Online Customers/Suppliers/Expenses/Installments/Maintenance merged via PR #17.
+- 🟢 التقارير — branch-scoped financial reports endpoint + Desktop Reports UI + regression coverage merged via PR #18.
+- 🟢 الفروع والمستخدمون والصلاحيات UI — Branch/Role/User access profiles, scoped queries, Desktop administration UI, and access invariants merged via PR #18.
 - ⬜ الإعدادات والـ account linking.
 - ⬜ hardware integrations.
 
@@ -238,12 +238,14 @@
 
 ## الحالة الحالية
 
-**PR #17:** Desktop Online operational workflows — customers, suppliers, expenses, installments, maintenance; specialized scoped reads for installment payments and maintenance parts. CI + security + production audit green. PR #17 is open and not merged.
+**PR #17:** Desktop Online operational workflows — merged to `main`; CI + security + production audit green.
 
-**Branch:** `feat/desktop-online-operational-workflows`  
-**CI:** 🟢 PR #17 — Python + Flutter analyze + security passed  
-**Tests:** 🟢 150 Python tests passed، 2 warnings  
-**Production audit:** 🟢 passed  
-**Financial Phase:** 🟢 مكتملة برمجياً على الفرع؛ يلزم دمج PR #16 فقط بعد المراجعة النهائية  
+**PR #18:** Branches/Roles/Users + financial reports — merged to `main`; CI + security + production audit green.
+
+**Branch:** `main`  
+**CI:** 🟢 PR #17 + PR #18 — Python + Flutter analyze + security passed  
+**Tests:** 🟢 latest PR #18 — 161 Python tests passed، 2 warnings  
+**Production audit:** 🟢 PR #18 passed  
+**Financial Phase:** 🟢 مكتملة برمجياً ومندمجة ضمن `main` عبر PR #17  
 **Production-ready:** ⬜ لا — staging/Turso operational verification وباقي P0 ما زالت مطلوبة  
 **Main:** لم يتم تعديله ضمن هذه الجولة.

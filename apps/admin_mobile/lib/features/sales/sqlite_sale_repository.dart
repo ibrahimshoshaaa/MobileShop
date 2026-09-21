@@ -1,7 +1,9 @@
 import 'dart:math';
+import '../inventory/inventory_models.dart';
 import '../inventory/inventory_repository.dart';
 import '../inventory/local_store.dart';
 import 'sale_models.dart';
+import 'sale_repository.dart';
 
 /// Persists sales to the same on-device SQLite database used for inventory
 /// (see LocalStore), and drives stock down/up through [InventoryRepository]

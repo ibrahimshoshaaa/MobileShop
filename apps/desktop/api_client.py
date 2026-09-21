@@ -10,7 +10,12 @@ import json
 import urllib.error
 import urllib.request
 
-from errors import AppError
+try:
+    # Package import path (CI/tests).
+    from .errors import AppError
+except ImportError:
+    # Script/legacy launch path (running from apps/desktop).
+    from errors import AppError
 
 DEFAULT_BASE_URL = "http://localhost:8000"
 DEFAULT_TOKEN = "dev-owner-token"
@@ -19,8 +24,7 @@ DEFAULT_BRANCH_ID = "LOCAL_BRANCH"
 
 class ApiError(AppError):
     """Same shape as AppError so the existing Tkinter error-label pattern
-    (`except AppError as e: self.error_label.config(text=e.message)`) works
-    unchanged whether the app is in offline or online mode."""
+    works unchanged whether the app is in offline or online mode."""
 
 
 class ApiClient:

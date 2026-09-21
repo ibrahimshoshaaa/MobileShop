@@ -11,7 +11,7 @@ Future<SalesRepository> getSalesRepository() {
 
 Future<SalesRepository> _create() async {
   final inventory = await getInventoryRepository();
-  return SqliteSalesRepository.create(inventory);
+  return await SqliteSalesRepository.create(inventory);
 }
 
 void resetSalesRepositoryForTesting() {

@@ -40,6 +40,7 @@ from __future__ import annotations
 
 import sys
 import os
+import tempfile
 from pathlib import Path
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -70,7 +71,12 @@ app = FastAPI(
     description="Local/dev entrypoint only — see module docstring in main.py.",
 )
 
-_DB_PATH = Path(__file__).resolve().parent / "data" / "dev_erp.db"
+if os.getenv("TURSO_DATABASE_URL") and os.getenv("TURSO_AUTH_TOKEN"):
+    # Vercel Functions have a read-only deployment filesystem. Durable production
+    # state is stored in Turso/libSQL; the local path is only a constructor fallback.
+    _DB_PATH = Path(tempfile.gettempdir()) / "mobile-shop" / "dev_erp.db"
+else:
+    _DB_PATH = Path(__file__).resolve().parent / "data" / "dev_erp.db"
 _DB_PATH.parent.mkdir(parents=True, exist_ok=True)
 
 if os.getenv("APP_ENV", "development").lower() == "production":

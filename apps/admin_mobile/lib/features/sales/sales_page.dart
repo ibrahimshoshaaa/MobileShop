@@ -126,9 +126,9 @@ class _SalesPageState extends State<SalesPage> {
 }
 
 class _CartLine {
-  _CartLine(this.product, {this.quantity = 1}) : unitPrice = product.sellingPrice;
+  _CartLine(this.product) : unitPrice = product.sellingPrice;
   final Product product;
-  int quantity;
+  int quantity = 1;
   double unitPrice;
   double get lineTotal => quantity * unitPrice;
 }

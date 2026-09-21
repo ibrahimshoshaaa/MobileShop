@@ -430,7 +430,15 @@ def install_completion(engine_cls):
             else:
                 raise DomainError('INVALID_INPUT','تحويل العميل يجب أن يكون بين محفظة نقدية ومحفظة رقمية.',{})
             if actual:
-                self._put(self.ledger,LedgerEntry(f'{ctx.command_id}:commission',ctx.branch_id,'transfer_commission','TRANSFER_COMMISSION',credit=actual,reference_id=ctx.command_id))
+                commission_side = 'credit' if src_type in cash_types else 'debit'
+                self._put(self.ledger,LedgerEntry(
+                    f'{ctx.command_id}:commission',
+                    ctx.branch_id,
+                    'transfer_commission' if commission_side == 'credit' else 'transfer_commission_expense',
+                    'TRANSFER_COMMISSION',
+                    **{commission_side: actual},
+                    reference_id=ctx.command_id,
+                ))
             obj={'id':ctx.command_id,'type':'CUSTOMER_TRANSFER','source_wallet_id':source_wallet,'destination_wallet_id':destination_wallet,'amount':a,'default_commission':default,'commission':actual,'override':commission is not None,'override_reason':reason}
             self._put(self.transfers,obj); self._audit(ctx,'CREATE_CUSTOMER_TRANSFER',ctx.command_id,{'amount':str(a),'commission':str(actual),'override':commission is not None}); self._processed[ctx.idempotency_key]=obj; return obj
     def report_rows(self,branch_id):

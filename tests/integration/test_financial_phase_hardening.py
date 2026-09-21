@@ -433,3 +433,48 @@ def test_reports_use_ledger_after_return_and_transfer_commission_expense():
     assert report["cogs"] == Decimal("0.00")
     assert report["transfer_commission"] == Decimal("-1.00")
     assert report["net_profit"] == Decimal("-1.00")
+
+def test_maintenance_part_uses_weighted_average_cost_not_client_cost():
+    e = seed()
+    ticket = e.create_maintenance_ticket(
+        ctx("maint-cost", {"maintenance.create"}), "c1", "Phone", "Broken"
+    )
+    part = e.use_maintenance_part(
+        ctx("maint-part-cost", {"maintenance.parts"}),
+        ticket.id, "p1", Decimal("1"), Decimal("1"),
+    )
+    assert part["cost"] == Decimal("100.00")
+    assert e.maintenance.get(ticket.id).parts_cost == Decimal("100.00")
+
+
+def test_maintenance_cancel_returns_consumed_parts():
+    e = seed()
+    ticket = e.create_maintenance_ticket(
+        ctx("maint-cancel", {"maintenance.create"}), "c1", "Phone", "Broken"
+    )
+    before = e._available_qty("b1", "p1")
+    e.use_maintenance_part(
+        ctx("maint-part-cancel", {"maintenance.parts"}),
+        ticket.id, "p1", Decimal("1"), Decimal("100"),
+    )
+    assert e._available_qty("b1", "p1") == before - Decimal("1")
+    e.cancel_maintenance(ctx("maint-cancel-now", {"maintenance.update"}), ticket.id)
+    assert e._available_qty("b1", "p1") == before
+    assert e.maintenance.get(ticket.id).parts_cost == Decimal("0")
+    assert e.maintenance_parts.all() == []
+
+
+def test_maintenance_ready_cannot_be_marked_delivered_without_delivery_command():
+    e = seed()
+    ticket = e.create_maintenance_ticket(
+        ctx("maint-delivery-flow", {"maintenance.create"}), "c1", "Phone", "Broken"
+    )
+    for i, status in enumerate(["DIAGNOSING", "WAITING_CUSTOMER", "IN_PROGRESS", "READY"]):
+        ticket = e.transition_maintenance(
+            ctx(f"maint-flow-{i}", {"maintenance.update"}), ticket.id, status
+        )
+    with pytest.raises(DomainError) as exc:
+        e.transition_maintenance(
+            ctx("maint-bypass", {"maintenance.update"}), ticket.id, "DELIVERED"
+        )
+    assert exc.value.code == "INVALID_INPUT"

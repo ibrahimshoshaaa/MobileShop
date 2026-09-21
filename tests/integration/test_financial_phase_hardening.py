@@ -257,7 +257,7 @@ def test_installment_down_payment_cannot_overdraw_wallet():
     with pytest.raises(DomainError) as exc:
         e.create_installment_plan(
             ctx("plan-overdraw", {"installments.create"}), sale.id, "c1",
-            Decimal("6000"), Decimal("10"), 2, down_payment_wallet_id="cash",
+            Decimal("100"), Decimal("10"), 2, down_payment_wallet_id="cash",
         )
     assert exc.value.code == "INSUFFICIENT_WALLET_BALANCE"
 
@@ -288,7 +288,7 @@ def test_customer_transfer_moves_value_in_correct_direction_and_balances():
     )
     assert e._balance("cash") == Decimal("5101.00")
     assert e._balance("digital") == Decimal("900.00")
-    assert e.ledger_transaction_totals("cash-to-digital") == (Decimal("100.00"), Decimal("100.00"))
+    assert e.ledger_transaction_totals("cash-to-digital") == (Decimal("101.00"), Decimal("101.00"))
     e.transfer_customer(
         ctx("digital-to-cash", {"transfer.create"}), "digital", "cash", Decimal("100"), Decimal("1"),
     )

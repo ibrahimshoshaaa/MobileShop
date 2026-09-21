@@ -484,6 +484,8 @@ class ERPCommandEngine:
         with self._lock:
             self._auth(_ctx(command),'closing.close'); old=self._idem(_ctx(command))
             if old:return old
+            if closing_date>date.today():
+                raise DomainError('INVALID_INPUT','لا يمكن إغلاق يوم في المستقبل.',{})
             if self.closings.all() and any(c.branch_id==_ctx(command).branch_id and c.closing_date==closing_date and c.locked for c in self.closings.all()):raise DomainError('INVALID_INPUT','اليوم مغلق بالفعل.',{})
             expected={}
             for w in self.wallets.all():

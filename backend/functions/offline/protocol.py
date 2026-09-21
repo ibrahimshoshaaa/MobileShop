@@ -148,10 +148,20 @@ class SyncProtocol:
                     # SQLite raises IntegrityError; Turso/libSQL Hrana can surface
                     # UNIQUE constraint conflicts as ValueError. Treat both as
                     # the same cross-worker idempotency race.
-                    row = self.db.execute(
-                        "SELECT status,result_json,error_code,request_hash,claimed_at FROM sync_receipts WHERE tenant_id=? AND branch_id=? AND command_id=?",
-                        (tenant_id, branch_id, command_id),
-                    ).fetchone()
+                    row = None
+                    for read_attempt in range(8):
+                        try:
+                            row = self.db.execute(
+                                "SELECT status,result_json,error_code,request_hash,claimed_at FROM sync_receipts WHERE tenant_id=? AND branch_id=? AND command_id=?",
+                                (tenant_id, branch_id, command_id),
+                            ).fetchone()
+                            break
+                        except Exception as read_exc:
+                            read_message = str(read_exc)
+                            read_busy = "SQLITE_BUSY" in read_message or "database is locked" in read_message
+                            if not read_busy or read_attempt == 7:
+                                raise
+                            time.sleep(0.05 * (read_attempt + 1))
                     if row and row[3] == request_hash:
                         if row[0] == "PROCESSING" and row[4] and time.time() - float(row[4]) > 60:
                             self.db.execute("DELETE FROM sync_receipts WHERE tenant_id=? AND branch_id=? AND command_id=?", (tenant_id, branch_id, command_id))

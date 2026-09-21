@@ -472,8 +472,11 @@ class ERPCommandEngine:
             self._put(self.ledger,LedgerEntry(f'{ip.id}:wallet',_ctx(command).branch_id,f'wallet:{wallet_id}','INSTALLMENT_PAYMENT',debit=a,reference_id=plan_id))
             if p.customer_id and principal_part:
                 self._put(self.ledger,LedgerEntry(f'{ip.id}:principal',_ctx(command).branch_id,f'customer:{p.customer_id}','INSTALLMENT_PRINCIPAL',credit=principal_part,reference_id=plan_id))
-            if interest_part:
-                self._put(self.ledger,LedgerEntry(f'{ip.id}:interest',_ctx(command).branch_id,'installment_interest','INSTALLMENT_INTEREST',credit=interest_part,reference_id=plan_id))
+            # Interest is recognized when the plan is created. Collection only
+            # settles the accrued customer receivable; it must not recognize the
+            # same interest income a second time.
+            if p.customer_id and interest_part:
+                self._put(self.ledger,LedgerEntry(f'{ip.id}:interest',_ctx(command).branch_id,f'customer:{p.customer_id}','INSTALLMENT_INTEREST',credit=interest_part,reference_id=plan_id))
             self._audit(_ctx(command),'COLLECT_INSTALLMENT',plan_id,{'amount':str(a),'principal':str(principal_part),'interest':str(interest_part)}); self._processed[_ctx(command).idempotency_key]=ip; return ip
 
     def installment_remaining(self,plan_id):

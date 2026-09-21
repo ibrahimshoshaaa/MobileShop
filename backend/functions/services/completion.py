@@ -28,6 +28,57 @@ def install_completion(engine_cls):
             p=self.products.get(product_id)
             if not p: raise DomainError('NOT_FOUND','المنتج غير موجود.',{})
             np=replace(p,**changes); self.products.update(product_id,np); self._audit(ctx,'CHANGE_PRODUCT',product_id,{'changes':changes}); self._processed[ctx.idempotency_key]=np; return np
+    def create_branch(self, command, branch):
+        ctx=command.context if hasattr(command,'context') else command
+        with self._lock:
+            self._auth(ctx,'branches.manage'); old=self._idem(ctx)
+            if old:return old
+            if not branch.name.strip() or not branch.code.strip():
+                raise DomainError('INVALID_INPUT','اسم وكود الفرع مطلوبان.',{})
+            if any(b.code==branch.code for b in self.branches.all()):
+                raise DomainError('DUPLICATE_BRANCH','كود الفرع مستخدم بالفعل.',{})
+            self._put(self.branches,branch); self._audit(ctx,'CREATE_BRANCH',branch.id); self._processed[ctx.idempotency_key]=branch; return branch
+
+    def create_role(self, command, role):
+        ctx=command.context if hasattr(command,'context') else command
+        with self._lock:
+            self._auth(ctx,'roles.manage'); old=self._idem(ctx)
+            if old:return old
+            if not role.name.strip(): raise DomainError('INVALID_INPUT','اسم الدور مطلوب.',{})
+            if any(r.name==role.name for r in self.roles.all()):
+                raise DomainError('DUPLICATE_ROLE','اسم الدور مستخدم بالفعل.',{})
+            self._put(self.roles,role); self._audit(ctx,'CREATE_ROLE',role.id); self._processed[ctx.idempotency_key]=role; return role
+
+    def create_user_profile(self, command, user):
+        ctx=command.context if hasattr(command,'context') else command
+        with self._lock:
+            self._auth(ctx,'users.manage'); old=self._idem(ctx)
+            if old:return old
+            if self.users.get(user.id): raise DomainError('DUPLICATE_USER','ملف المستخدم موجود بالفعل.',{})
+            for bid in user.branch_ids:
+                b=self.branches.get(bid)
+                if not b: raise DomainError('NOT_FOUND','الفرع غير موجود.',{'branch_id':bid})
+                if not b.active: raise DomainError('INVALID_INPUT','لا يمكن إسناد مستخدم لفرع غير مفعّل.',{'branch_id':bid})
+            if user.role_id and not self.roles.get(user.role_id):
+                raise DomainError('NOT_FOUND','الدور غير موجود.',{'role_id':user.role_id})
+            self._put(self.users,user); self._audit(ctx,'CREATE_USER_PROFILE',user.id); self._processed[ctx.idempotency_key]=user; return user
+
+    def update_user_access(self, command, user_id, branch_ids, role_id=None, permissions=()):
+        ctx=command.context if hasattr(command,'context') else command
+        with self._lock:
+            self._auth(ctx,'users.manage'); old=self._idem(ctx)
+            if old:return old
+            user=self.users.get(user_id)
+            if not user: raise DomainError('NOT_FOUND','المستخدم غير موجود.',{'user_id':user_id})
+            branches=tuple(dict.fromkeys(branch_ids))
+            for bid in branches:
+                b=self.branches.get(bid)
+                if not b: raise DomainError('NOT_FOUND','الفرع غير موجود.',{'branch_id':bid})
+                if not b.active: raise DomainError('INVALID_INPUT','لا يمكن إسناد مستخدم لفرع غير مفعّل.',{'branch_id':bid})
+            if role_id and not self.roles.get(role_id): raise DomainError('NOT_FOUND','الدور غير موجود.',{'role_id':role_id})
+            np=replace(user,branch_ids=branches,role_id=role_id,permissions=tuple(sorted(set(permissions))))
+            self.users.update(user_id,np); self._audit(ctx,'UPDATE_USER_ACCESS',user_id,{'branch_ids':branches,'role_id':role_id,'permissions':list(np.permissions)}); self._processed[ctx.idempotency_key]=np; return np
+
     def create_customer(self, command, customer):
         ctx=command.context if hasattr(command,'context') else command
         with self._lock:
@@ -344,7 +395,7 @@ def install_completion(engine_cls):
             })
         return True
 
-    engine_cls.transaction=transaction; engine_cls.collect_customer=collect_customer; engine_cls.transfer_customer=transfer_customer; engine_cls.report_rows=report_rows
+    engine_cls.transaction=transaction; engine_cls.create_branch=create_branch; engine_cls.create_role=create_role; engine_cls.create_user_profile=create_user_profile; engine_cls.update_user_access=update_user_access; engine_cls.collect_customer=collect_customer; engine_cls.transfer_customer=transfer_customer; engine_cls.report_rows=report_rows
     engine_cls.ledger_transaction_totals=ledger_transaction_totals; engine_cls.assert_ledger_balanced=assert_ledger_balanced
 
     # Financial commands are executed inside the same snapshot/rollback boundary.

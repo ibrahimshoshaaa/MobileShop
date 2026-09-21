@@ -26,11 +26,13 @@ from tkinter import messagebox, ttk
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))  # allow sibling imports (inventory_repo, etc.)
 
+from access_tab import AccessTab
 from customers_tab import CustomersTab  # noqa: E402
 from expenses_tab import ExpensesTab  # noqa: E402
 from installments_tab import InstallmentsTab  # noqa: E402
 from inventory_tab import InventoryTab  # noqa: E402
-from maintenance_tab import MaintenanceTab  # noqa: E402
+from maintenance_tab import MaintenanceTab
+from reports_tab import ReportsTab  # noqa: E402
 from sales_tab import SalesTab  # noqa: E402
 from suppliers_tab import SuppliersTab  # noqa: E402
 
@@ -51,6 +53,8 @@ def _online_repositories():
     import api_expenses_repo
     import api_installments_repo
     import api_maintenance_repo
+    import api_access_repo
+    import api_reports_repo
     api_client.DEFAULT_BASE_URL = os.environ.get("MOBILE_SHOP_ERP_API_URL", api_client.DEFAULT_BASE_URL)
     api_client.DEFAULT_TOKEN = os.environ.get("MOBILE_SHOP_ERP_API_TOKEN", api_client.DEFAULT_TOKEN)
     branch_id = os.environ.get("MOBILE_SHOP_ERP_BRANCH_ID", api_client.DEFAULT_BRANCH_ID)
@@ -62,6 +66,8 @@ def _online_repositories():
     api_expenses_repo._client = client
     api_installments_repo._client = client
     api_maintenance_repo._client = client
+    api_access_repo._client = client
+    api_reports_repo._client = client
     return (api_sales_repo, api_inventory_repo, api_customers_repo, api_suppliers_repo, api_expenses_repo, api_installments_repo, api_maintenance_repo)
 
 
@@ -87,6 +93,10 @@ class DesktopApp:
         notebook.add(InstallmentsTab(notebook, repo=installments_repo_module, customers_repo_module=customers_repo_module), text="الأقساط")
         notebook.add(MaintenanceTab(notebook, repo=maintenance_repo_module, customers_repo_module=customers_repo_module, inventory_repo_module=inventory_repo_module), text="الصيانة")
         notebook.add(ExpensesTab(notebook, repo=expenses_repo_module), text="المصروفات")
+        if ONLINE_MODE:
+            import api_access_repo, api_reports_repo
+            notebook.add(AccessTab(notebook, repo=api_access_repo), text="الفروع والصلاحيات")
+            notebook.add(ReportsTab(notebook, repo=api_reports_repo), text="التقارير")
 
         if ONLINE_MODE:
             api_url = os.environ.get("MOBILE_SHOP_ERP_API_URL", "http://localhost:8000")

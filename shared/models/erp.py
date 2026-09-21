@@ -97,6 +97,22 @@ class MaintenanceTicket:
     tenant_id: str = "default"
 
 @dataclass(frozen=True)
+class Branch:
+    id: str; name: str; code: str; active: bool=True
+    tenant_id: str = "default"
+
+@dataclass(frozen=True)
+class ERPUser:
+    id: str; name: str; branch_ids: tuple[str,...]=(); role_id: str|None=None
+    permissions: tuple[str,...]=(); active: bool=True
+    tenant_id: str = "default"
+
+@dataclass(frozen=True)
+class ERPUserRole:
+    id: str; name: str; permissions: tuple[str,...]=(); active: bool=True
+    tenant_id: str = "default"
+
+@dataclass(frozen=True)
 class Employee:
     id: str; name: str; branch_ids: tuple[str,...]=(); salary_type: str='FIXED'; fixed_salary: Decimal=Decimal('0'); active: bool=True
     tenant_id: str = "default"

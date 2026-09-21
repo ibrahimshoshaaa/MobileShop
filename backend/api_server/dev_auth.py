@@ -26,7 +26,7 @@ _DEV_TOKENS = {
             "installments.create", "installments.collect",
             "maintenance.create", "maintenance.update", "maintenance.parts",
             "closing.close", "permissions.change", "settings.change",
-            "employees.salary", "inventory.create_unit",
+            "employees.salary", "inventory.create_unit", "branches.read", "branches.manage", "users.read", "users.manage", "roles.read", "roles.manage", "reports.read",
         ),
     },
     "dev-cashier-token": {

@@ -503,6 +503,8 @@ class ERPCommandEngine:
             t=self.maintenance.get(ticket_id)
             if not t:raise DomainError('NOT_FOUND','طلب الصيانة غير موجود.',{})
             if t.branch_id!=_ctx(command).branch_id:raise DomainError('BRANCH_ACCESS_DENIED','طلب الصيانة خارج الفرع.',{})
+            if new_status=='DELIVERED':
+                raise DomainError('INVALID_INPUT','تسليم الصيانة يجب أن يتم عبر أمر التسليم المحاسبي.',{})
             if new_status!=self._MAINT.get(t.status):raise DomainError('INVALID_INPUT','انتقال حالة الصيانة غير مسموح.',{'from':t.status,'to':new_status})
             nt=replace(t,status=new_status); self.maintenance.update(ticket_id,nt); self._audit(_ctx(command),'MAINTENANCE_STATUS',ticket_id,{'status':new_status}); self._processed[_ctx(command).idempotency_key]=nt; return nt
     def cancel_maintenance(self,command,ticket_id):
@@ -513,7 +515,13 @@ class ERPCommandEngine:
             if not t:raise DomainError('NOT_FOUND','طلب الصيانة غير موجود.',{})
             if t.branch_id!=_ctx(command).branch_id:raise DomainError('BRANCH_ACCESS_DENIED','طلب الصيانة خارج الفرع.',{})
             if t.status in {'DELIVERED','CANCELLED'}:raise DomainError('INVALID_INPUT','لا يمكن إلغاء الطلب بعد إغلاقه.',{})
-            nt=replace(t,status='CANCELLED'); self.maintenance.update(ticket_id,nt); self._audit(_ctx(command),'CANCEL_MAINTENANCE',ticket_id); self._processed[_ctx(command).idempotency_key]=nt; return nt
+            parts=[p for p in self.maintenance_parts.all() if p.get('ticket_id')==ticket_id]
+            for p in parts:
+                self._put(self.stock,StockMovement(f'{p["id"]}:cancel-return',t.branch_id,p['product_id'],p['quantity'],'MAINTENANCE_CANCEL_RETURN',ticket_id,None,p['cost']))
+                self.maintenance_parts.delete(p['id'])
+            nt=replace(t,status='CANCELLED',parts_cost=D0); self.maintenance.update(ticket_id,nt)
+            self._audit(_ctx(command),'CANCEL_MAINTENANCE',ticket_id,{'returned_parts':len(parts)})
+            self._processed[_ctx(command).idempotency_key]=nt; return nt
     def use_maintenance_part(self,command,ticket_id,product_id,quantity,cost):
         with self._lock:
             self._auth(_ctx(command),'maintenance.parts'); old=self._idem(_ctx(command))

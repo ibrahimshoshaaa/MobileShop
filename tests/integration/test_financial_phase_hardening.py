@@ -42,6 +42,40 @@ def test_discounted_full_return_refunds_net_invoice_total():
     assert e.ledger_transaction_totals(sale.id) == (Decimal("380.00"), Decimal("380.00"))
 
 
+
+def test_split_payment_full_return_refunds_original_wallets():
+    e = seed()
+    sale = e.create_sale(CreateSaleCommand(
+        ctx("split-sale", {"sales.create"}), None,
+        ({"product_id": "p1", "quantity": 1, "unit_price": Decimal("100")},),
+        (
+            {"wallet_id": "cash", "amount": Decimal("60")},
+            {"wallet_id": "digital", "amount": Decimal("40")},
+        ),
+    ))
+    returned = e.return_sale(
+        ctx("split-return", {"sales.return"}), sale.id,
+        [{"sale_item_id": sale.items[0].id, "quantity": Decimal("1")}],
+    )
+    assert returned["amount"] == Decimal("100.00")
+    assert returned["refund_allocations"] == (("cash", Decimal("60.00")), ("digital", Decimal("40.00")))
+    assert e.customer_balance("c1", "b1") == Decimal("0.00")
+
+
+def test_mixed_paid_credit_full_return_refunds_paid_part_and_clears_receivable():
+    e = seed()
+    sale = e.create_sale(CreateSaleCommand(
+        ctx("mixed-sale", {"sales.create"}), "c1",
+        ({"product_id": "p1", "quantity": 1, "unit_price": Decimal("100")},),
+        ({"wallet_id": "cash", "amount": Decimal("60")},),
+    ))
+    e.return_sale(
+        ctx("mixed-return", {"sales.return"}), sale.id,
+        [{"sale_item_id": sale.items[0].id, "quantity": Decimal("1")}],
+    )
+    assert e._balance("cash") == Decimal("5000.00")
+    assert e.customer_balance("c1", "b1") == Decimal("0.00")
+
 def test_partial_discounted_returns_never_exceed_invoice_total():
     e = seed()
     e.products.update("p1", Product("p1", "Phone", "SKU1", "PHONE_NEW", default_cost=Decimal("100")))

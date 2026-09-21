@@ -106,8 +106,17 @@ class ERPCommandEngine:
             for u,i,cost in unit_updates:
                 nu=replace(u,status='AVAILABLE',purchase_cost=cost,final_cost=money(cost+u.refurbishing_cost+u.direct_cost))
                 self.units.update(u.id,nu); self._put(self.stock,StockMovement(f'{p.id}:{u.id}',p.branch_id,i['product_id'],D0,'PURCHASE',p.id,u.id,nu.final_cost))
+            # Every purchase increases branch stock and creates the supplier payable.
+            # Payment then settles part (or all) of that payable.
+            for n, i in enumerate(items):
+                if not i.get('product_unit_id'):
+                    q=dec(i['quantity']); cost=money(i['unit_cost'])
+                    self._put(self.stock,StockMovement(f'{p.id}:stock:{n}',p.branch_id,i['product_id'],q,'PURCHASE',p.id,None,cost))
             self._put(self.ledger,LedgerEntry(f'{p.id}:inventory',p.branch_id,'inventory','PURCHASE',debit=total,reference_id=p.id))
-            if paid:self._put(self.ledger,LedgerEntry(f'{p.id}:wallet',p.branch_id,f'wallet:{wallet_id}','PURCHASE_PAYMENT',credit=paid,reference_id=p.id))
+            self._put(self.ledger,LedgerEntry(f'{p.id}:payable',p.branch_id,f'payable:{supplier_id}','PURCHASE_PAYABLE',credit=total,reference_id=p.id))
+            if paid:
+                self._put(self.ledger,LedgerEntry(f'{p.id}:wallet',p.branch_id,f'wallet:{wallet_id}','PURCHASE_PAYMENT',credit=paid,reference_id=p.id))
+                self._put(self.ledger,LedgerEntry(f'{p.id}:payable-payment',p.branch_id,f'payable:{supplier_id}','SUPPLIER_PAYMENT',debit=paid,reference_id=p.id))
             self._audit(_ctx(command),'CREATE_PURCHASE',p.id,{'total':str(total),'paid':str(paid)}); self._processed[_ctx(command).idempotency_key]=p; return p
 
     def _available_qty(self,bid,pid):
@@ -175,6 +184,11 @@ class ERPCommandEngine:
             if not s: raise DomainError('NOT_FOUND','الفاتورة غير موجودة.',{})
             if s.branch_id!=_ctx(command).branch_id: raise DomainError('BRANCH_ACCESS_DENIED','الفاتورة خارج الفرع.',{})
             if s.status=='VOIDED': raise DomainError('SALE_ALREADY_VOIDED','الفاتورة ملغاة بالفعل.',{})
+            if any(
+                isinstance(rr,dict) and rr.get('sale_id')==sale_id
+                for rr in self.returns.all()
+            ):
+                raise DomainError('INVALID_VOID','لا يمكن إلغاء فاتورة سبق تسجيل مرتجع لها.',{})
             # A void reverses the original wallet inflows. Validate every
             # refund wallet before mutating any state so a void cannot create
             # a negative cash/digital balance halfway through the operation.
@@ -249,8 +263,12 @@ class ERPCommandEngine:
                         prior_wallet_refunds[wid]=prior_wallet_refunds.get(wid,D0)+dec(rr.get('amount',D0))
                     else:
                         prior_customer_credits += dec(rr.get('amount',D0))
+            requested_now={}
             for match,q in returned:
-                if already.get(match.id,D0)+q > match.quantity:
+                requested_now[match.id]=requested_now.get(match.id,D0)+q
+            for match_id,q in requested_now.items():
+                original=next(i for i in s.items if i.id==match_id)
+                if already.get(match_id,D0)+q > original.quantity:
                     raise DomainError('INVALID_RETURN','تم تجاوز الكمية المتاحة للإرجاع.',{})
 
             paid_by_wallet={}
@@ -390,6 +408,8 @@ class ERPCommandEngine:
                 if not down_payment_wallet_id:
                     raise DomainError('INVALID_PAYMENT','يجب تحديد محفظة للدفعة المقدمة.',{})
                 self._wallet(down_payment_wallet_id,_ctx(command).branch_id)
+                if self._balance(down_payment_wallet_id)<down:
+                    raise DomainError('INSUFFICIENT_WALLET_BALANCE','رصيد المحفظة غير كافٍ.',{})
             plan=InstallmentPlan(_ctx(command).command_id,sale_id,customer_id,base,rate,inc,due,term,monthly)
             self._put(self.installments,plan)
             if down:
@@ -404,7 +424,12 @@ class ERPCommandEngine:
             if old:return old
             p=self.installments.get(plan_id)
             if not p:raise DomainError('NOT_FOUND','خطة التقسيط غير موجودة.',{})
+            sale=self.sales.get(p.sale_id) if getattr(p,'sale_id',None) else None
+            if not sale:raise DomainError('NOT_FOUND','الفاتورة المرتبطة بالتقسيط غير موجودة.',{})
+            if sale.branch_id!=_ctx(command).branch_id:raise DomainError('BRANCH_ACCESS_DENIED','خطة التقسيط خارج الفرع.',{})
             a=money(amount); self._wallet(wallet_id,_ctx(command).branch_id)
+            if a<=0 or self._balance(wallet_id)<a:
+                raise DomainError('INSUFFICIENT_WALLET_BALANCE','رصيد المحفظة غير كافٍ.',{})
             paid=sum((x.amount for x in self.installment_payments.all() if x.plan_id==plan_id),D0)
             if a<=0 or paid+a>p.total_due:raise DomainError('INVALID_PAYMENT','قيمة التحصيل تتجاوز المتبقي.',{})
             if p.customer_id and self.customers.get(p.customer_id) is None:
@@ -462,6 +487,8 @@ class ERPCommandEngine:
             if old:return old
             q=dec(quantity); c=money(cost); t=self.maintenance.get(ticket_id)
             if not t:raise DomainError('NOT_FOUND','طلب الصيانة غير موجود.',{})
+            if t.branch_id!=_ctx(command).branch_id:raise DomainError('BRANCH_ACCESS_DENIED','طلب الصيانة خارج الفرع.',{})
+            if q<=0 or c<0:raise DomainError('INVALID_INPUT','الكمية والتكلفة غير صحيحتين.',{})
             if self._available_qty(t.branch_id,product_id)<q:raise DomainError('INSUFFICIENT_STOCK','المخزون غير كافٍ.',{})
             part={'id':_ctx(command).command_id,'ticket_id':ticket_id,'product_id':product_id,'quantity':q,'cost':c}; self._put(self.maintenance_parts,part); self._put(self.stock,StockMovement(f'{part["id"]}:stock',t.branch_id,product_id,-q,'MAINTENANCE_USE',ticket_id,None,c)); nt=replace(t,parts_cost=money(t.parts_cost+q*c)); self.maintenance.update(t.id,nt); self._audit(_ctx(command),'USE_MAINTENANCE_PART',ticket_id,{'product_id':product_id,'quantity':str(q)}); self._processed[_ctx(command).idempotency_key]=part; return part
 

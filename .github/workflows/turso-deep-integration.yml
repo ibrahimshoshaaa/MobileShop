@@ -46,7 +46,6 @@ jobs:
                   "payload": payload,
               }
 
-          # Use two independent connections/workers against the same Turso DB.
           left = SyncProtocol()
           right = SyncProtocol()
           try:
@@ -59,7 +58,6 @@ jobs:
                       calls.append(e["command_id"])
                   return {"applied": True, "run_id": run_id}
 
-              # Cross-worker concurrency: same command must execute once.
               with ThreadPoolExecutor(max_workers=2) as pool:
                   futures = [
                       pool.submit(w.upload, [env], tenant_id=tenant, branch_id=branch, executor=execute)
@@ -72,18 +70,15 @@ jobs:
               assert "APPLIED" in statuses
               assert statuses <= {"APPLIED", "PROCESSING"}
 
-              # Idempotent replay must not execute again.
               replay = left.upload([env], tenant_id=tenant, branch_id=branch, executor=execute)
               assert replay["results"][0]["status"] == "APPLIED"
               assert replay["results"][0]["idempotent_replay"] is True
               assert calls == [env["command_id"]]
 
-              # Reusing the same key with a different payload must conflict.
               reused = envelope(env["command_id"], tenant, branch, payload="different")
               conflict = left.upload([reused], tenant_id=tenant, branch_id=branch, executor=execute)
               assert conflict["results"][0]["error_code"] == "IDEMPOTENCY_KEY_REUSE"
 
-              # Tenant/branch isolation: mismatched envelope must never execute.
               bad_tenant = envelope(f"scope-{run_id}", "other-tenant", branch)
               scope = left.upload([bad_tenant], tenant_id=tenant, branch_id=branch, executor=execute)
               assert scope["results"][0]["error_code"] == "ACCOUNT_SCOPE_MISMATCH"
@@ -92,8 +87,6 @@ jobs:
               scope2 = left.upload([bad_branch], tenant_id=tenant, branch_id=branch, executor=execute)
               assert scope2["results"][0]["error_code"] == "ACCOUNT_SCOPE_MISMATCH"
 
-              # Sync event/cursor: applied command must be downloadable only
-              # for its exact tenant+branch scope.
               downloaded = left.download(tenant_id=tenant, branch_id=branch, cursor=0, limit=100)
               ids = [x["command_id"] for x in downloaded["changes"]]
               assert env["command_id"] in ids

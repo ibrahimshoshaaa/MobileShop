@@ -126,7 +126,10 @@ def install_completion(engine_cls):
             if not customer: raise DomainError('NOT_FOUND','العميل غير موجود.',{'customer_id':customer_id})
             if 'name' in changes and not str(changes['name']).strip():
                 raise DomainError('INVALID_INPUT','اسم العميل مطلوب.',{})
-            allowed={k:v for k,v in changes.items() if k in {'name','phone','active'}}
+            unknown=set(changes)-{'name','phone','active'}
+            if unknown:
+                raise DomainError('INVALID_INPUT','حقول العميل غير مسموح بتعديلها.',{'fields':sorted(unknown)})
+            allowed=dict(changes)
             updated=replace(customer,**allowed)
             self.customers.update(customer_id,updated)
             self._audit(ctx,'UPDATE_CUSTOMER',customer_id,{'changes':allowed})
@@ -143,7 +146,10 @@ def install_completion(engine_cls):
                 raise DomainError('BRANCH_ACCESS_DENIED','المورد غير متاح لهذا الفرع.',{})
             if 'name' in changes and not str(changes['name']).strip():
                 raise DomainError('INVALID_INPUT','اسم المورد مطلوب.',{})
-            allowed={k:v for k,v in changes.items() if k in {'name','phone','active'}}
+            unknown=set(changes)-{'name','phone','active'}
+            if unknown:
+                raise DomainError('INVALID_INPUT','حقول المورد غير مسموح بتعديلها.',{'fields':sorted(unknown)})
+            allowed=dict(changes)
             updated=replace(supplier,**allowed)
             self.suppliers.update(supplier_id,updated)
             self._audit(ctx,'UPDATE_SUPPLIER',supplier_id,{'changes':allowed})

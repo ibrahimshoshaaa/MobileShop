@@ -247,7 +247,7 @@ def _ask_quantity(parent):
 
 
 class DeliverDialog(tk.Toplevel):
-    def __init__(self, master, ticket, repo=maintenance_repo)
+    def __init__(self, master, ticket, repo=maintenance_repo):
         super().__init__(master)
         self.ticket = ticket
         self.title("تسليم الجهاز")

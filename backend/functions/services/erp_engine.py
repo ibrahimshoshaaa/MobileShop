@@ -313,7 +313,7 @@ class ERPCommandEngine:
             self._put(self.ledger,LedgerEntry(f'{tid}:commission',_ctx(command).branch_id,'transfer_commission_expense','TRANSFER_COMMISSION',debit=comm,reference_id=tid))
             self._audit(_ctx(command),'TRANSFER_WALLET',tid,{'amount':str(a),'commission':str(comm),'source':s.name,'destination':d.name}); self._processed[_ctx(command).idempotency_key]=tid; return tid
 
-    def create_installment_plan(self,command,sale_id,customer_id,down_payment,rate_percent,term_months,rounding='0.01'):
+    def create_installment_plan(self,command,sale_id,customer_id,down_payment,rate_percent,term_months,rounding='0.01',down_payment_wallet_id=None):
         with self._lock:
             self._auth(_ctx(command),'installments.create'); old=self._idem(_ctx(command))
             if old:return old
@@ -328,7 +328,17 @@ class ERPCommandEngine:
             down=money(down_payment); rate=dec(rate_percent); term=int(term_months)
             if down<0 or down>receivable or rate<0 or term<=0 or money(receivable-down)<=0:raise DomainError('INVALID_INSTALLMENT_TERM','شروط التقسيط غير صحيحة.',{})
             base=money(receivable-down); inc=money(base*rate/Decimal('100')); due=money(base+inc); monthly=(due/term).quantize(Decimal(str(rounding)),rounding=ROUND_HALF_UP)
-            plan=InstallmentPlan(_ctx(command).command_id,sale_id,customer_id,base,rate,inc,due,term,monthly); self._put(self.installments,plan); self._audit(_ctx(command),'CREATE_INSTALLMENT',plan.id,{'total_due':str(due)}); self._processed[_ctx(command).idempotency_key]=plan; return plan
+            if down:
+                if not down_payment_wallet_id:
+                    raise DomainError('INVALID_PAYMENT','يجب تحديد محفظة للدفعة المقدمة.',{})
+                self._wallet(down_payment_wallet_id,_ctx(command).branch_id)
+            plan=InstallmentPlan(_ctx(command).command_id,sale_id,customer_id,base,rate,inc,due,term,monthly)
+            self._put(self.installments,plan)
+            if down:
+                self._put(self.ledger,LedgerEntry(f'{plan.id}:down:wallet',_ctx(command).branch_id,f'wallet:{down_payment_wallet_id}','INSTALLMENT_DOWN_PAYMENT',debit=down,reference_id=plan.id))
+                self._put(self.ledger,LedgerEntry(f'{plan.id}:down:customer',_ctx(command).branch_id,f'customer:{customer_id}','INSTALLMENT_DOWN_PAYMENT',credit=down,reference_id=plan.id))
+            self._audit(_ctx(command),'CREATE_INSTALLMENT',plan.id,{'total_due':str(due),'down_payment':str(down)})
+            self._processed[_ctx(command).idempotency_key]=plan; return plan
 
     def collect_installment(self,command,plan_id,amount,wallet_id):
         with self._lock:

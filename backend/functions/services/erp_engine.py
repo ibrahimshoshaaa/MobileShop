@@ -54,6 +54,8 @@ class ERPCommandEngine:
         w=self.wallets.get(wid)
         if not w: raise DomainError('NOT_FOUND','المحفظة غير موجودة.',{'wallet_id':wid})
         if w.branch_id!=bid: raise DomainError('BRANCH_ACCESS_DENIED','المحفظة خارج الفرع.',{})
+        if not getattr(w,'active',True):
+            raise DomainError('WALLET_DISABLED','المحفظة غير مفعلة.',{'wallet_id':wid})
         return w
     def _balance(self,wid):
         def val(e,k): return getattr(e,k,e.get(k,D0) if isinstance(e,dict) else D0)

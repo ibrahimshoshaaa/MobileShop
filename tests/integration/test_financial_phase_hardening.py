@@ -137,6 +137,33 @@ def test_installment_down_payment_clears_existing_receivable():
     assert e.ledger_transaction_totals(plan.id) == (Decimal("215.00"), Decimal("215.00"))
 
 
+
+def test_disabled_wallet_cannot_be_used_for_financial_operations():
+    e = seed()
+    e.wallets.create("disabled", Wallet("disabled", "b1", "Disabled", "CASH", active=False))
+    with pytest.raises(DomainError) as exc:
+        e.create_expense(ctx("disabled-expense", {"expenses.create"}), "disabled", Decimal("10"), "test")
+    assert exc.value.code == "WALLET_DISABLED"
+
+
+def test_sale_cannot_have_two_installment_plans():
+    e = seed()
+    sale = e.create_sale(CreateSaleCommand(
+        ctx("installment-sale", {"sales.create"}), "c1",
+        ({"product_id": "p1", "quantity": 1, "unit_price": Decimal("200")},),
+        (),
+    ))
+    e.create_installment_plan(
+        ctx("plan-a", {"installments.create"}), sale.id, "c1",
+        Decimal("0"), Decimal("10"), 2,
+    )
+    with pytest.raises(DomainError) as exc:
+        e.create_installment_plan(
+            ctx("plan-b", {"installments.create"}), sale.id, "c1",
+            Decimal("0"), Decimal("10"), 2,
+        )
+    assert exc.value.code == "INSTALLMENT_ALREADY_EXISTS"
+
 def test_financial_command_rolls_back_all_state_on_late_failure():
     e = seed()
     before_cash = e._balance("cash")

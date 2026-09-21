@@ -2,7 +2,7 @@ name: CI
 
 on:
   push:
-    branches: ["main", "production-hardening/**"]
+    branches: ["main", "production-hardening/**", "release/production-gates-audit"]
   pull_request:
 
 permissions:

@@ -53,5 +53,13 @@ def add_customer(*, name: str, phone: str | None) -> Customer:
 def update_customer(customer: Customer) -> Customer:
     if not customer.name.strip():
         raise AppError("اسم العميل مطلوب.")
-    # updateCustomer is not yet exposed by the backend dispatch boundary.
-    raise AppError("تعديل العميل Online غير متاح حتى الآن؛ استخدم وضع Offline لهذه العملية.")
+    data = _client.command(
+        f"cmd-update-customer-{uuid.uuid4().hex[:12]}",
+        "updateCustomer",
+        {"customer_id": customer.id, "changes": {
+            "name": customer.name.strip(),
+            "phone": customer.phone.strip() if customer.phone and customer.phone.strip() else None,
+            "active": customer.active,
+        }},
+    )
+    return _to_customer(data)

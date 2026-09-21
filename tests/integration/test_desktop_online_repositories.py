@@ -6,6 +6,10 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "apps" / "desktop")
 
 import pytest
 
+from pathlib import Path
+import sys
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "apps" / "desktop"))
+
 from apps.desktop import api_expenses_repo, api_installments_repo, api_maintenance_repo, api_suppliers_repo
 
 

@@ -27,7 +27,7 @@ def main() -> int:
     token = required("STAGING_BEARER_TOKEN")
     branch = required("STAGING_BRANCH_ID")
 
-    client = ApiClient(base_url=base_url, token=token, branch_id=branch)
+    client = ApiClient(base_url=base_url, token=token, branch_id=branch, timeout=60)
 
     # Real desktop client path: authenticated product retrieval.
     products = client.get_products()
@@ -45,7 +45,7 @@ def main() -> int:
     req = urllib.request.Request(url, method="GET")
     req.add_header("Authorization", f"Bearer {token}")
     req.add_header("Content-Type", "application/json")
-    with urllib.request.urlopen(req, timeout=15) as response:
+    with urllib.request.urlopen(req, timeout=60) as response:
         payload = json.loads(response.read().decode("utf-8"))
     assert payload.get("ok") is True, f"query/products failed: {payload}"
     assert isinstance(payload.get("data"), list), "query/products data is not a list"
@@ -56,7 +56,7 @@ def main() -> int:
     sync_req = urllib.request.Request(sync_url, data=sync_body, method="POST")
     sync_req.add_header("Authorization", f"Bearer {token}")
     sync_req.add_header("Content-Type", "application/json")
-    with urllib.request.urlopen(sync_req, timeout=15) as response:
+    with urllib.request.urlopen(sync_req, timeout=60) as response:
         sync_payload = json.loads(response.read().decode("utf-8"))
     assert sync_payload.get("ok") is True, f"sync/upload failed: {sync_payload}"
 

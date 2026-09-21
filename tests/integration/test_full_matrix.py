@@ -29,7 +29,7 @@ def test_return():
     r=e.return_sale(ctx('r'),s.id,({'sale_item_id':s.items[0].id,'quantity':1},),'w'); assert r['amount']==Decimal('150.00')
 
 def test_wallet_transfer_and_adjustment():
-    e=base(); e.transfer_between_wallets(ctx('t'),'w','w2',Decimal('100')); assert e._balance('w')==399 and e._balance('w2')==100; e.adjust_wallet(ctx('a'),'w',Decimal('20')); assert e._balance('w')==420
+    e=base(); e.transfer_between_wallets(ctx('t'),'w','w2',Decimal('100')); assert e._balance('w')==399 and e._balance('w2')==100; e.adjust_wallet(ctx('a'),'w',Decimal('20')); assert e._balance('w')==419
 
 def test_customer_transfer_commission_is_revenue_only():
     e=base(); x=e.create_transfer(ctx('tr'),'w','w2',Decimal('100'),Decimal('2')); assert x['commission']==2; assert e._balance('w')==400 and e._balance('w2')==100; assert any((z['account_id'] if isinstance(z,dict) else z.account_id)=='transfer_commission' and (z['credit'] if isinstance(z,dict) else z.credit)==2 for z in e.ledger.all())

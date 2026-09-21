@@ -232,27 +232,69 @@ class ERPCommandEngine:
             # cannot be turned into a cash payout, and a wallet cannot refund more
             # than it originally received for this sale.
             already = {}
-            prior_wallet_refunds = D0
+            prior_wallet_refunds = {}
+            prior_customer_credits = D0
             for rr in self.returns.all():
                 if isinstance(rr,dict) and rr.get('sale_id')==sale_id:
                     for item_id, qty in rr.get('items',()):
                         already[item_id]=already.get(item_id,D0)+dec(qty)
-                    if refund_wallet_id and rr.get('refund_wallet_id')==refund_wallet_id:
-                        prior_wallet_refunds += dec(rr.get('amount',D0))
+                    allocations=rr.get('refund_allocations',())
+                    if allocations:
+                        for wallet_id, amount in allocations:
+                            prior_wallet_refunds[wallet_id]=prior_wallet_refunds.get(wallet_id,D0)+dec(amount)
+                    elif rr.get('refund_wallet_id'):
+                        wid=rr.get('refund_wallet_id')
+                        prior_wallet_refunds[wid]=prior_wallet_refunds.get(wid,D0)+dec(rr.get('amount',D0))
+                    else:
+                        prior_customer_credits += dec(rr.get('amount',D0))
             for match,q in returned:
                 if already.get(match.id,D0)+q > match.quantity:
                     raise DomainError('INVALID_RETURN','تم تجاوز الكمية المتاحة للإرجاع.',{})
+
+            paid_by_wallet={}
+            for payment in s.payments:
+                paid_by_wallet[payment.wallet_id]=paid_by_wallet.get(payment.wallet_id,D0)+payment.amount
+            remaining_wallet_capacity={
+                wid: money(amount-prior_wallet_refunds.get(wid,D0))
+                for wid, amount in paid_by_wallet.items()
+            }
+            original_receivable=money(s.total-sum((p.amount for p in s.payments),D0))
+            remaining_receivable=money(max(D0,original_receivable-prior_customer_credits))
+            total_capacity=money(sum(remaining_wallet_capacity.values(),D0)+remaining_receivable)
+            if refund>total_capacity:
+                raise DomainError('INVALID_RETURN','قيمة المرتجع تتجاوز المبلغ المدفوع والرصيد المستحق.',{})
+
+            refund_allocations=[]
+            customer_credit=D0
             if refund_wallet_id:
                 self._wallet(refund_wallet_id,_ctx(command).branch_id)
-                original_paid=sum((p.amount for p in s.payments if p.wallet_id==refund_wallet_id),D0)
-                refundable=money(original_paid-prior_wallet_refunds)
-                if money(refund)>refundable:
-                    raise DomainError('INVALID_RETURN','قيمة المرتجع أكبر من المبلغ المدفوع من هذه المحفظة.',{})
-                if self._balance(refund_wallet_id) < money(refund):
-                    raise DomainError('INSUFFICIENT_WALLET_BALANCE','رصيد محفظة رد المبلغ غير كافٍ.',{})
-            elif not s.customer_id:
-                raise DomainError('INVALID_RETURN','المرتجع يحتاج محفظة رد أو عميل للفواتير الآجلة.',{})
-            rid=_ctx(command).command_id; self._put(self.returns,{'id':rid,'sale_id':sale_id,'amount':money(refund),'items':tuple((i.id,q) for i,q in returned),'refund_wallet_id':refund_wallet_id})
+                capacity=remaining_wallet_capacity.get(refund_wallet_id,D0)
+                if refund>capacity:
+                    raise DomainError('INVALID_RETURN','قيمة المرتجع أكبر من المبلغ المتاح للإرجاع من هذه المحفظة.',{})
+                if self._balance(refund_wallet_id)<refund:
+                    raise DomainError('INSUFFICIENT_WALLET_BALANCE','رصيد محفظة رد المبلغ غير كافٍ.',{'wallet_id':refund_wallet_id})
+                if refund:
+                    refund_allocations.append((refund_wallet_id,money(refund)))
+            else:
+                remaining=refund
+                for wid, capacity in remaining_wallet_capacity.items():
+                    if remaining<=0: break
+                    allocation=money(min(remaining,capacity))
+                    if allocation<=0: continue
+                    self._wallet(wid,_ctx(command).branch_id)
+                    if self._balance(wid)<allocation:
+                        raise DomainError('INSUFFICIENT_WALLET_BALANCE','رصيد محفظة رد المبلغ غير كافٍ.',{'wallet_id':wid})
+                    refund_allocations.append((wid,allocation))
+                    remaining=money(remaining-allocation)
+                if remaining>0:
+                    customer_credit=money(min(remaining,remaining_receivable))
+                    remaining=money(remaining-customer_credit)
+                if remaining>0:
+                    raise DomainError('INVALID_RETURN','تعذر تسوية قيمة المرتجع بالكامل.',{})
+                if not refund_allocations and customer_credit<=0:
+                    raise DomainError('INVALID_RETURN','المرتجع يحتاج وسيلة تسوية.',{})
+            rid=_ctx(command).command_id
+            self._put(self.returns,{'id':rid,'sale_id':sale_id,'amount':money(refund),'items':tuple((i.id,q) for i,q in returned),'refund_wallet_id':refund_allocations[0][0] if len(refund_allocations)==1 and customer_credit==0 else None,'refund_allocations':tuple(refund_allocations),'customer_credit':customer_credit})
             for i,q in returned:
                 self._put(self.stock,StockMovement(f'{rid}:{i.id}',s.branch_id,i.product_id,q,'RETURN',sale_id,i.product_unit_id,i.cost_snapshot))
                 if i.product_unit_id:self.units.update(i.product_unit_id,replace(self.units.get(i.product_unit_id),status='AVAILABLE'))
@@ -261,10 +303,12 @@ class ERPCommandEngine:
             if refund_cost:
                 self._put(self.ledger,LedgerEntry(f'{rid}:cogs',s.branch_id,'cost_of_goods_sold','RETURN',credit=refund_cost,reference_id=sale_id,reversal_of=f'{sale_id}:cogs'))
                 self._put(self.ledger,LedgerEntry(f'{rid}:inventory',s.branch_id,'inventory','RETURN',debit=refund_cost,reference_id=sale_id))
-            if refund_wallet_id:self._put(self.ledger,LedgerEntry(f'{rid}:wallet',s.branch_id,f'wallet:{refund_wallet_id}','RETURN_REFUND',credit=money(refund),reference_id=sale_id))
-            else:
-                if s.customer_id:
-                    self._put(self.ledger,LedgerEntry(f'{rid}:customer',s.branch_id,f'customer:{s.customer_id}','RETURN_RECEIVABLE',credit=money(refund),reference_id=sale_id))
+            for n,(wid,amount) in enumerate(refund_allocations):
+                self._put(self.ledger,LedgerEntry(f'{rid}:wallet:{n}',s.branch_id,f'wallet:{wid}','RETURN_REFUND',credit=money(amount),reference_id=sale_id))
+            if customer_credit:
+                if not s.customer_id:
+                    raise DomainError('INVALID_RETURN','لا يوجد عميل لتسوية الرصيد المستحق.',{})
+                self._put(self.ledger,LedgerEntry(f'{rid}:customer',s.branch_id,f'customer:{s.customer_id}','RETURN_RECEIVABLE',credit=money(customer_credit),reference_id=sale_id))
             self._audit(_ctx(command),'RETURN_SALE',sale_id,{'amount':str(money(refund))}); self._processed[_ctx(command).idempotency_key]=self.returns.get(rid); return self.returns.get(rid)
 
     def create_expense(self,command,wallet_id,amount,category,note=None):

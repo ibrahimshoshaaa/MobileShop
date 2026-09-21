@@ -138,6 +138,27 @@ def test_installment_down_payment_clears_existing_receivable():
 
 
 
+
+def test_day_close_blocks_financial_commands_until_reopened():
+    e = seed()
+    e.close_day(ctx("close", {"closing.close"}), date.today(), {"cash": Decimal("5000"), "digital": Decimal("0")})
+    with pytest.raises(DomainError) as exc:
+        e.create_expense(ctx("blocked", {"expenses.create"}), "cash", Decimal("10"), "rent")
+    assert exc.value.code == "DAY_CLOSED"
+    e.reopen_day(ctx("reopen", {"closing.reopen"}), date.today())
+    e.create_expense(ctx("after-reopen", {"expenses.create"}), "cash", Decimal("10"), "rent")
+
+
+def test_future_day_cannot_be_closed():
+    e = seed()
+    with pytest.raises(DomainError) as exc:
+        e.close_day(
+            ctx("future-close", {"closing.close"}),
+            date.today().replace(year=date.today().year + 1),
+            {"cash": Decimal("5000"), "digital": Decimal("0")},
+        )
+    assert exc.value.code == "INVALID_INPUT"
+
 def test_disabled_wallet_cannot_be_used_for_financial_operations():
     e = seed()
     e.wallets.create("disabled", Wallet("disabled", "b1", "Disabled", "CASH", active=False))

@@ -111,7 +111,7 @@ class SyncProtocol:
     def _begin(self) -> None:
         for attempt in range(5):
             try:
-                self.db.execute("BEGIN IMMEDIATE")
+                self.db.execute("BEGIN")
                 return
             except Exception as exc:
                 message = str(exc)
@@ -211,11 +211,38 @@ class SyncProtocol:
                 except Exception:
                     logger.debug("sync rollback failed", exc_info=True)
 
+                # With deferred transactions, a concurrent writer can receive
+                # SQLITE_BUSY at the first write instead of waiting inside an
+                # interactive transaction. Give the winning worker a short window
+                # to commit its receipt, then replay the authoritative result.
+                message = str(exc).upper()
+                if "SQLITE_BUSY" in message or "DATABASE IS LOCKED" in message:
+                    for _ in range(20):
+                        time.sleep(0.1)
+                        row = self._read_receipt(tenant_id, branch_id, command_id)
+                        if row:
+                            if row[3] and row[3] != request_hash:
+                                results.append({
+                                    "command_id": command_id,
+                                    "status": "CONFLICT",
+                                    "error_code": "IDEMPOTENCY_KEY_REUSE",
+                                })
+                            else:
+                                results.append(self._replay_result(command_id, row))
+                            break
+                    else:
+                        results.append({
+                            "command_id": command_id,
+                            "status": "RETRYABLE",
+                            "error_code": "TEMPORARY_UNAVAILABLE",
+                        })
+                    continue
+
                 # Two workers can both observe an empty receipt before one wins
                 # the unique claim. If the loser hits the PRIMARY KEY constraint,
                 # the winner has already committed the authoritative result; replay
                 # it instead of manufacturing a RETRYABLE failure.
-                if "UNIQUE" in str(exc).upper() or "CONSTRAINT" in str(exc).upper():
+                if "UNIQUE" in message or "CONSTRAINT" in message:
                     row = self._read_receipt(tenant_id, branch_id, command_id)
                     if row:
                         if row[3] and row[3] != request_hash:

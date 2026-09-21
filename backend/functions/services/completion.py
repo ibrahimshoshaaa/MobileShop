@@ -131,7 +131,10 @@ def install_completion(engine_cls):
             if t.status!='READY':raise DomainError('INVALID_INPUT','لا يمكن التسليم قبل READY.',{})
             price=M(final_price); pay=M(payment)
             if price<0 or pay<0 or pay>price:raise DomainError('INVALID_PAYMENT','قيمة الدفع غير صحيحة.',{})
-            self._wallet(wallet_id,ctx.branch_id)
+            if pay:
+                if not wallet_id:
+                    raise DomainError('INVALID_PAYMENT','يجب تحديد محفظة للسداد.',{})
+                self._wallet(wallet_id,ctx.branch_id)
             if pay and self._balance(wallet_id) < pay:
                 raise DomainError('INSUFFICIENT_WALLET_BALANCE','رصيد المحفظة غير كافٍ.',{'wallet_id':wallet_id})
             nt=replace(t,status='DELIVERED',final_cost=price,payment=pay); self.maintenance.update(t.id,nt)

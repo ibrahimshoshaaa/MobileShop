@@ -70,26 +70,27 @@ def main() -> int:
         config = json.loads(response.read().decode("utf-8"))
 
     api_key = str(config.get("apiKey") or "").strip()
-    if not api_key:
-        raise SystemExit("Firebase Identity Platform API key was not returned by authenticated project config")
 
     custom_token = auth.create_custom_token(uid, app=app)
     if isinstance(custom_token, bytes):
         custom_token = custom_token.decode("utf-8")
 
-    exchange_url = (
-        "https://identitytoolkit.googleapis.com/v1/accounts:signInWithCustomToken"
-        f"?key={api_key}"
-    )
+    exchange_url = "https://identitytoolkit.googleapis.com/v1/accounts:signInWithCustomToken"
     payload = json.dumps({
         "token": custom_token,
         "returnSecureToken": True,
     }).encode("utf-8")
+    exchange_headers = {
+        "Content-Type": "application/json",
+        "Authorization": f"Bearer {google_cred.token}",
+    }
+    if api_key:
+        exchange_url += f"?key={api_key}"
     exchange_request = urllib.request.Request(
         exchange_url,
         data=payload,
         method="POST",
-        headers={"Content-Type": "application/json"},
+        headers=exchange_headers,
     )
     with urllib.request.urlopen(exchange_request, timeout=20) as response:
         result = json.loads(response.read().decode("utf-8"))

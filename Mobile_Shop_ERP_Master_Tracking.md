@@ -69,7 +69,7 @@
 - ✅ في Turso mode يتم refresh من SQL المركزي داخل transaction قبل تنفيذ الأمر.
 - ⬜ اختبار network/DB failure على Turso الحقيقي.
 - ✅ local SQLite backup/restore drill + integrity verification مضاف.
-- ⬜ تنفيذ backup/restore drill فعلي على حساب Turso الإنتاجي.
+- 🟡 تنفيذ backup/restore drill فعلي على حساب Turso الإنتاجي — automation محلية جاهزة، لكن إثبات managed-Turso يحتاج حساب Turso وصلاحية إنشاء restore target.
 - ✅ sync protocol يستخدم central SQL idempotency/cursor model؛ تبقى مراجعة تشغيلية فعلية على عدة workers.
 
 ---
@@ -90,9 +90,9 @@
 - ✅ آخر CI أخضر قبل حزمة ERP regression كان ناجحاً؛ ثم أضافت المراجعة اختبارات ERP جديدة كشفت 5 إخفاقات، وتم إصلاح أسبابها/تهيئة الاختبارات. تشغيل CI على الـHEAD الحالي ما زال قيد التنفيذ.
 - ✅ اختبارات concurrency/multi-device sync أضيفت.
 - ✅ staging smoke script + manual GitHub workflow أضيفا.
-- ⬜ تشغيل staging smoke فعلياً بعد ضبط secrets.
+- 🟡 تشغيل staging smoke فعلياً بعد ضبط secrets — workflow موجود ويعمل على release branch و`main`.
 - ⬜ production smoke tests.
-- ⬜ build/release artifact verification.
+- 🟡 build/release artifact verification — client validation أضيفت إلى CI، وما زال artifact/E2E proof مطلوباً.
 
 ---
 
@@ -115,7 +115,7 @@
 - ⬜ لا يوجد Barcode/IMEI scanner حقيقي.
 - ⬜ لا توجد طباعة إيصال.
 - ⬜ لا توجد واجهة صلاحيات مستخدمين مكتملة.
-- ⬜ الموبايل غير متصل بالـ API المركزي بشكل كامل.
+- 🟡 الموبايل غير متصل بالـ API المركزي بشكل كامل؛ CI الآن يتحقق من Flutter analysis، لكن E2E الحقيقي ما زال مطلوباً.
 - ⬜ بروتوكول offline sync الحقيقي غير مكتمل.
 - ⬜ أرصدة المحافظ ليست دورة مالية مركزية كاملة.
 - ⬜ الحسابات المالية تحتاج مراجعة لاستخدام Decimal/دقة مالية مناسبة.
@@ -140,7 +140,7 @@
 ### حدود الديسكتوب
 - ✅ يستخدم نفس `SQLiteRepository` في الباكيند.
 - ✅ المخزون تم اختباره عبر HTTP حقيقي مع uvicorn.
-- ⬜ باقي التبويبات تحتاج API read/write حقيقي.
+- 🟡 باقي التبويبات تحتاج API read/write حقيقي قبل اعتبار desktop workflow كاملاً.
 - ⬜ الواجهة الرسومية نفسها لم تُختبر في بيئة تحتوي Tkinter.
 - ⬜ لا توجد طباعة/سكانر hardware integration.
 - ⬜ لا توجد صلاحيات مستخدمين مكتملة.
@@ -227,10 +227,10 @@
 
 ## الحالة الحالية
 
-**Branch:** `production-hardening/rc3`  
-**CI:** 🟡 آخر Run #205 فشل (10 اختبارات)؛ إصلاحات ما بعده موجودة والـHEAD الحالي ينتظر CI جديد  
-**Tests:** 🟡 Run #205: 122 passed / 10 failed؛ تم إصلاح أسباب الإخفاقات المعروفة على commits لاحقة، وتبقى النتيجة الجديدة هي الحَكم  
+**Branch:** `release/complete-release-gates`  
+**CI:** 🟡 release validation مضاف؛ النتيجة الجديدة يجب أن تكون الحكم على هذا الفرع بعد التشغيل  
+**Tests:** 🟡 يلزم Run حديث على release branch بعد تغييرات release-gates  
 **Bandit:** 🟢 passed  
 **pip-audit:** 🟢 passed  
 **Production-ready:** ⬜ لا — يلزم staging/Turso operational verification  
-**Main:** لم يتم الدمج.
+**Main:** ما زال مستقراً على آخر merge؛ فرع release-gates منفصل ولم يتم دمجه بعد.

@@ -2,6 +2,8 @@ name: Staging smoke
 
 on:
   workflow_dispatch:
+  push:
+    branches: ["main", "release/complete-release-gates"]
 
 jobs:
   smoke:

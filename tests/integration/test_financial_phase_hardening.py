@@ -343,6 +343,15 @@ def test_exchange_is_atomic_when_new_sale_fails():
     assert e.returns.all()==[]
 
 
+def test_zero_cost_stock_adjustment_uses_weighted_average_cost():
+    e = seed()
+    movement = e.adjust_stock(
+        ctx("zero-cost-adjustment", {"stock.adjust"}), "p1", Decimal("1"), Decimal("0")
+    )
+    assert movement.cost == Decimal("100.00")
+    assert e.ledger_transaction_totals(movement.id) == (Decimal("100.00"), Decimal("100.00"))
+
+
 def test_stock_transfer_rejects_unknown_or_inactive_destination_branch():
     e = seed()
     with pytest.raises(DomainError) as exc:

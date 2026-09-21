@@ -2,7 +2,7 @@ from decimal import Decimal
 from datetime import date, timedelta
 import pytest
 from shared.contracts.commands import CommandContext, CreateSaleCommand
-from shared.models.erp import Product, ProductUnit, Wallet, Supplier, Customer, Employee
+from shared.models.erp import Product, ProductUnit, Wallet, Supplier, Customer, Employee, Branch
 from shared.contracts.errors import DomainError
 from backend.functions.services.erp_engine import ERPCommandEngine
 from backend.functions.offline.sync import OfflineSync
@@ -12,7 +12,7 @@ def C(cid, perms=None, branch='b1'):
     return CommandContext(cid,'u',branch,frozenset(p))
 
 def setup():
-    e=ERPCommandEngine(); e.products.create('p',Product('p','Phone','SKU','PHONE_NEW',barcode='BAR',default_cost=Decimal('100')))
+    e=ERPCommandEngine(); e.branches.create('b1',Branch('b1','Branch 1','B1')); e.branches.create('b2',Branch('b2','Branch 2','B2')); e.products.create('p',Product('p','Phone','SKU','PHONE_NEW',barcode='BAR',default_cost=Decimal('100')))
     e.products.create('a',Product('a','Accessory','SKU-A','ACCESSORY',default_cost=Decimal('10')))
     e.wallets.create('cash',Wallet('cash','b1','Cash','CASH')); e.wallets.create('dig',Wallet('dig','b1','Digital','DIGITAL')); e.wallets.create('cash2',Wallet('cash2','b2','Cash2','CASH'))
     e.ledger.create('open',{'id':'open','branch_id':'b1','account_id':'wallet:cash','debit':Decimal('5000'),'credit':Decimal('0')})

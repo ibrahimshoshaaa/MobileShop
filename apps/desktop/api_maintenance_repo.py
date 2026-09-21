@@ -5,7 +5,7 @@ from datetime import datetime
 from api_client import ApiClient
 from errors import AppError
 
-NEXT_STATUS={"RECEIVED":"DIAGNOSING","DIAGNOSING":"WAITING_CUSTOMER","WAITING_CUSTOMER":"IN_PROGRESS","IN_PROGRESS":"READY","READY":"DELIVERED"}
+NEXT_STATUS={"RECEIVED":"DIAGNOSING","DIAGNOSING":"WAITING_CUSTOMER","WAITING_CUSTOMER":"IN_PROGRESS","IN_PROGRESS":"READY"}
 STATUS_LABELS={"RECEIVED":"تم الاستلام","DIAGNOSING":"جارِ الفحص","WAITING_CUSTOMER":"بانتظار العميل","IN_PROGRESS":"جارِ الإصلاح","READY":"جاهز للتسليم","DELIVERED":"تم التسليم","CANCELLED":"ملغي"}
 @dataclass
 class MaintenanceTicket:

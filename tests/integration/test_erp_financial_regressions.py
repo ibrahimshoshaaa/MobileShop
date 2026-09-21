@@ -43,8 +43,8 @@ def test_installment_collection_balances_principal_and_interest():
     assert sum((x.debit for x in entries), Decimal("0")) == sum(
         (x.credit for x in entries), Decimal("0")
     )
-    assert e.customer_balance("c1", "b1") == Decimal("0")
-    assert any(x.account_id == "installment_interest" and x.credit == Decimal("5") for x in entries)
+    assert e.customer_balance("c1", "b1") == Decimal("5.00")
+    assert any(x.account_id == "installment_interest" and x.credit == Decimal("10.00") for x in entries)
     assert payment.amount == Decimal("105")
 
 

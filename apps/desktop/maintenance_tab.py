@@ -251,6 +251,7 @@ class DeliverDialog(tk.Toplevel):
     def __init__(self, master, ticket, repo=maintenance_repo):
         super().__init__(master)
         self.ticket = ticket
+        self.repo = repo
         self.title("تسليم الجهاز")
         self.geometry("320x320")
         self._build()
@@ -285,7 +286,7 @@ class DeliverDialog(tk.Toplevel):
             return
         code = next(code for code, label in sales_repo.PAYMENT_METHODS if label == self.method_var.get())
         try:
-            maintenance_repo.deliver_ticket(ticket_id=self.ticket.id, final_price=price, payment=payment, method=code)
+            self.repo.deliver_ticket(ticket_id=self.ticket.id, final_price=price, payment=payment, method=code)
         except AppError as e:
             self.error_label.config(text=e.message)
             return

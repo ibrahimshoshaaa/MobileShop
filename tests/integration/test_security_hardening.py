@@ -1,4 +1,5 @@
 import pytest
+from decimal import Decimal
 from backend.functions.api.http import handle
 from backend.functions.services.erp_engine import ERPCommandEngine
 from shared.contracts.errors import DomainError
@@ -44,8 +45,9 @@ def test_customer_transfer_digital_to_cash_moves_in_correct_direction():
     e.ledger.create('seed-c', {'id':'seed-c','branch_id':'b1','account_id':'wallet:cash','entry_type':'SEED','debit':200,'credit':0})
     x=e.transfer_customer(CommandContext('t','u','b1',frozenset({'transfer.create'})),'dig','cash',100)
     assert x['commission']==1
-    assert e._balance('dig')==1101
-    assert e._balance('cash')==100
+    assert e._balance('dig')==1100
+    assert e._balance('cash')==99
+    assert e.ledger_transaction_totals('t') == (Decimal('101.00'), Decimal('101.00'))
 
 
 def test_idempotency_is_scoped_to_tenant():

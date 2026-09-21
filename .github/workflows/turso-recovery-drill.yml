@@ -25,6 +25,22 @@ jobs:
           test -n "$TURSO_API_TOKEN"
           test -n "$TURSO_ORG"
           test -n "$TURSO_SOURCE_DB"
+      - name: Validate Turso Platform API token
+        env:
+          TURSO_API_TOKEN: ${{ secrets.TURSO_API_TOKEN }}
+        run: |
+          set -euo pipefail
+          response="$(curl -sS -w '\n%{http_code}' \
+            -H "Authorization: Bearer $TURSO_API_TOKEN" \
+            https://api.turso.tech/v1/auth/validate)"
+          status="$(printf '%s\n' "$response" | tail -n 1)"
+          body="$(printf '%s\n' "$response" | sed '$d')"
+          if [ "$status" != "200" ]; then
+            echo "Turso Platform API token validation failed (HTTP $status)."
+            printf '%s\n' "$body"
+            exit 1
+          fi
+          echo "TURSO_PLATFORM_API_TOKEN_OK"
       - name: Restore source to a disposable point-in-time database
         env:
           TURSO_API_TOKEN: ${{ secrets.TURSO_API_TOKEN }}

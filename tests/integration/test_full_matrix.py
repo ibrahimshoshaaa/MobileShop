@@ -36,7 +36,7 @@ def test_customer_transfer_commission_is_revenue_only():
 
 def test_installment_rounding_and_collection():
     e=base(); e.adjust_stock(ctx('seed'), 'p', 1, Decimal('100')); s=e.create_sale(CreateSaleCommand(ctx('s'),'c',({'product_id':'p','quantity':1,'unit_price':Decimal('300')},),({'wallet_id':'w','amount':Decimal('100')},)))
-    p=e.create_installment_plan(ctx('i'),s.id,'c',Decimal('100'),Decimal('10'),2); assert p.base_financed==100 and p.increase==10 and p.total_due==110 and p.monthly_amount==55
+    p=e.create_installment_plan(ctx('i'),s.id,'c',Decimal('100'),Decimal('10'),2,down_payment_wallet_id='w'); assert p.base_financed==100 and p.increase==10 and p.total_due==110 and p.monthly_amount==55
     e.collect_installment(ctx('ip'),'i',Decimal('55'),'w'); assert e.installment_remaining('i')==55
 
 def test_maintenance_flow_and_part_usage():

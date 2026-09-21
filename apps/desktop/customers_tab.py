@@ -33,7 +33,7 @@ class CustomersTab(ttk.Frame):
 
     def reload(self):
         self.tree.delete(*self.tree.get_children())
-        for c in customers_repo.list_customers(query=self.search_var.get()):
+        for c in self.repo.list_customers(query=self.search_var.get()):
             self.tree.insert("", "end", iid=c.id, values=(c.name, c.phone or "-", "مفعّل" if c.active else "معطّل"))
 
     def _selected_customer(self):
@@ -53,10 +53,11 @@ class CustomersTab(ttk.Frame):
 
 
 class CustomerFormWindow(tk.Toplevel):
-    def __init__(self, master, existing=None, on_saved=None):
+    def __init__(self, master, existing=None, on_saved=None, repo=customers_repo):
         super().__init__(master)
         self.existing = existing
         self.on_saved = on_saved
+        self.repo = repo
         self.title("تعديل عميل" if existing else "إضافة عميل جديد")
         self.geometry("340x300")
         self.resizable(False, False)
@@ -84,13 +85,13 @@ class CustomerFormWindow(tk.Toplevel):
     def _submit(self):
         try:
             if self.existing:
-                updated = customers_repo.Customer(
+                updated = self.repo.Customer(
                     id=self.existing.id, name=self.name_var.get().strip(),
                     phone=self.phone_var.get().strip() or None, active=self.active_var.get(),
                 )
-                customers_repo.update_customer(updated)
+                self.repo.update_customer(updated)
             else:
-                customers_repo.add_customer(name=self.name_var.get(), phone=self.phone_var.get())
+                self.repo.add_customer(name=self.name_var.get(), phone=self.phone_var.get())
         except AppError as e:
             self.error_label.config(text=e.message)
             return
@@ -103,8 +104,9 @@ class CustomerPickerWindow(tk.Toplevel):
     """Modal picker: sets `self.selected_customer` (or leaves it None for a
     walk-in sale) before closing. Caller should use `wait_window()`."""
 
-    def __init__(self, master):
+    def __init__(self, master, repo=customers_repo):
         super().__init__(master)
+        self.repo = repo
         self.selected_customer = None
         self.title("اختيار عميل")
         self.geometry("380x420")
@@ -137,7 +139,7 @@ class CustomerPickerWindow(tk.Toplevel):
             self.listbox.insert("end", f"{c.name}  {('- ' + c.phone) if c.phone else ''}")
 
     def _add_new(self):
-        form = CustomerFormWindow(self, on_saved=self._reload)
+        form = CustomerFormWindow(self, on_saved=self._reload, repo=self.repo)
         self.wait_window(form)
 
     def _choose_none(self):

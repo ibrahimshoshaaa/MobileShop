@@ -27,4 +27,15 @@ def add_supplier(*, name: str, phone: str | None):
     return _to_supplier(_client.command(f"cmd-create-supplier-{uuid.uuid4().hex[:12]}","createSupplier",{"name":name.strip(),"phone":phone.strip() if phone and phone.strip() else None,"branch_ids":[_client.branch_id]}))
 
 def update_supplier(supplier: Supplier):
-    raise AppError("تعديل المورد Online غير متاح حتى الآن؛ استخدم وضع Offline لهذه العملية.")
+    if not supplier.name.strip():
+        raise AppError("اسم المورد مطلوب.")
+    data = _client.command(
+        f"cmd-update-supplier-{uuid.uuid4().hex[:12]}",
+        "updateSupplier",
+        {"supplier_id": supplier.id, "changes": {
+            "name": supplier.name.strip(),
+            "phone": supplier.phone.strip() if supplier.phone and supplier.phone.strip() else None,
+            "active": supplier.active,
+        }},
+    )
+    return _to_supplier(data)

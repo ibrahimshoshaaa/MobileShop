@@ -26,3 +26,5 @@ jobs:
           STAGING_TENANT_ID: staging-tenant
           STAGING_BRANCH_ID: staging-main
         run: python scripts/provision_staging.py
+
+# Side-branch-only provisioning; do not move this workflow to main.

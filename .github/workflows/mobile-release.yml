@@ -42,6 +42,9 @@ jobs:
       - name: Generate Android project files
         run: flutter create --platforms=android --project-name mobile_shop_admin .
 
+      - name: Remove generated placeholder test
+        run: rm -rf test
+
       - name: Resolve dependencies
         run: flutter pub get
 

@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import json
 import sqlite3
+import time
 from pathlib import Path
 
 from backend.functions.persistence.domain_serializer import deserialize_value, serialize_value
@@ -92,8 +93,23 @@ class DurableERPCommandEngine(ERPCommandEngine):
 
     def transaction(self, fn):
         with self._lock:
+            began = False
             try:
-                self._conn.execute("BEGIN")
+                # Serialize writers at the database boundary. Plain BEGIN lets
+                # two workers take stale snapshots and later overwrite each
+                # other; BEGIN IMMEDIATE acquires the SQLite/libSQL write lock
+                # before we reload state.
+                for attempt in range(5):
+                    try:
+                        self._conn.execute("BEGIN IMMEDIATE")
+                        began = True
+                        break
+                    except Exception:
+                        if attempt == 4:
+                            raise
+                        time.sleep(0.05 * (attempt + 1))
+                if not began:
+                    raise RuntimeError("unable to begin durable transaction")
                 # In remote mode, refresh the authoritative SQL state before
                 # taking the in-memory rollback snapshot. This prevents a
                 # failed command on one worker from restoring stale state.

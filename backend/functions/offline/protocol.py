@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import time
 import sqlite3
 from threading import RLock
 from pathlib import Path
@@ -47,6 +48,7 @@ class SyncProtocol:
             result_json TEXT,
             error_code TEXT,
             request_hash TEXT,
+            claimed_at REAL,
             created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
             PRIMARY KEY (tenant_id, branch_id, command_id)
         );
@@ -66,7 +68,10 @@ class SyncProtocol:
         columns = {row[1] for row in self.db.execute("PRAGMA table_info(sync_receipts)").fetchall()}
         if "request_hash" not in columns:
             self.db.execute("ALTER TABLE sync_receipts ADD COLUMN request_hash TEXT")
-            self.db.commit()
+        columns = {row[1] for row in self.db.execute("PRAGMA table_info(sync_receipts)").fetchall()}
+        if "claimed_at" not in columns:
+            self.db.execute("ALTER TABLE sync_receipts ADD COLUMN claimed_at REAL")
+        self.db.commit()
         self._lock = RLock()
 
     def upload(self, envelopes: Iterable[dict], *, tenant_id: str, branch_id: str,
@@ -110,17 +115,22 @@ class SyncProtocol:
                 # separately so two API workers cannot both execute the same
                 # command before either one writes its final receipt.
                 self.db.execute(
-                    "INSERT INTO sync_receipts(tenant_id,branch_id,command_id,status,request_hash) VALUES(?,?,?,?,?)",
-                    (tenant_id, branch_id, command_id, "PROCESSING", request_hash),
+                    "INSERT INTO sync_receipts(tenant_id,branch_id,command_id,status,request_hash,claimed_at) VALUES(?,?,?,?,?,?)",
+                    (tenant_id, branch_id, command_id, "PROCESSING", request_hash, time.time()),
                 )
                 self.db.commit()
             except Exception:
                 row = self.db.execute(
-                    "SELECT status,result_json,error_code,request_hash FROM sync_receipts WHERE tenant_id=? AND branch_id=? AND command_id=?",
+                    "SELECT status,result_json,error_code,request_hash,claimed_at FROM sync_receipts WHERE tenant_id=? AND branch_id=? AND command_id=?",
                     (tenant_id, branch_id, command_id),
                 ).fetchone()
                 if row and row[3] == request_hash:
-                    results.append({"command_id": command_id, "status": row[0], "result": json.loads(row[1]) if row[1] else None, "error_code": row[2], "retryable": row[0] == "PROCESSING"})
+                    if row[0] == "PROCESSING" and row[4] and time.time() - float(row[4]) > 60:
+                        self.db.execute("DELETE FROM sync_receipts WHERE tenant_id=? AND branch_id=? AND command_id=?", (tenant_id, branch_id, command_id))
+                        self.db.commit()
+                    else:
+                        results.append({"command_id": command_id, "status": row[0], "result": json.loads(row[1]) if row[1] else None, "error_code": row[2], "retryable": row[0] == "PROCESSING"})
+                        continue
                 else:
                     results.append({"command_id": command_id, "status": "CONFLICT", "error_code": "IDEMPOTENCY_KEY_REUSE"})
                 continue
@@ -129,7 +139,7 @@ class SyncProtocol:
                 result = executor(envelope)
                 result_json = json.dumps(result, default=str, ensure_ascii=False, sort_keys=True)
                 self.db.execute(
-                    "UPDATE sync_receipts SET status='APPLIED', result_json=?, error_code=NULL WHERE tenant_id=? AND branch_id=? AND command_id=?",
+                    "UPDATE sync_receipts SET status='APPLIED', result_json=?, error_code=NULL, claimed_at=NULL WHERE tenant_id=? AND branch_id=? AND command_id=?",
                     (result_json, tenant_id, branch_id, command_id),
                 )
                 self.db.execute(
@@ -142,7 +152,7 @@ class SyncProtocol:
                 code = exc.code
                 status = "CONFLICT" if code in _CONFLICT_CODES else "FAILED"
                 self.db.execute(
-                    "UPDATE sync_receipts SET status=?, error_code=?, result_json=NULL WHERE tenant_id=? AND branch_id=? AND command_id=?",
+                    "UPDATE sync_receipts SET status=?, error_code=?, result_json=NULL, claimed_at=NULL WHERE tenant_id=? AND branch_id=? AND command_id=?",
                     (status, code, tenant_id, branch_id, command_id),
                 )
                 self.db.commit()
@@ -152,7 +162,7 @@ class SyncProtocol:
                 # executor may already have committed in another system, so callers
                 # must use the ERP command idempotency key when retrying.
                 self.db.execute(
-                    "UPDATE sync_receipts SET status='RETRYABLE', error_code='TEMPORARY_UNAVAILABLE' WHERE tenant_id=? AND branch_id=? AND command_id=?",
+                    "UPDATE sync_receipts SET status='RETRYABLE', error_code='TEMPORARY_UNAVAILABLE', claimed_at=NULL WHERE tenant_id=? AND branch_id=? AND command_id=?",
                     (tenant_id, branch_id, command_id),
                 )
                 self.db.commit()

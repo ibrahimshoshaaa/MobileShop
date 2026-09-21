@@ -1,4 +1,5 @@
 import 'dart:math';
+import '../inventory/inventory_models.dart';
 import '../inventory/inventory_repository.dart';
 import '../inventory/local_store.dart';
 import 'sale_models.dart';

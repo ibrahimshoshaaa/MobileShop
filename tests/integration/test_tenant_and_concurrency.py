@@ -65,13 +65,13 @@ def test_stale_processing_claim_is_reclaimed(tmp_path):
     )
 
     assert result["results"][0]["status"] == "APPLIED"
-    assert result["results"][0]["retryable"] is True
+    assert result["results"][0].get("retryable") is False
     assert calls == ["executed"]
     row = sync.db.execute(
         "SELECT status FROM sync_receipts WHERE tenant_id=? AND branch_id=? AND command_id=?",
         ("t1", "b1", "stuck"),
     ).fetchone()
-    assert row == ("PROCESSING",)
+    assert row == ("APPLIED",)
     sync.close()
 
 

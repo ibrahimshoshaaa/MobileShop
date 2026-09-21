@@ -34,7 +34,7 @@ def _token_metadata(token: str) -> dict:
             return {}
         padded = parts[1] + "=" * (-len(parts[1]) % 4)
         claims = json.loads(base64.urlsafe_b64decode(padded).decode("utf-8"))
-        return {"aud": claims.get("aud"), "iss": claims.get("iss"), "tenant_id": claims.get("tenant_id"), "branch_ids": claims.get("branch_ids"), "permissions": claims.get("permissions"), "iat": claims.get("iat"), "exp": claims.get("exp")}
+        return {"aud": claims.get("aud"), "iss": claims.get("iss"), "tenant_id": claims.get("tenant_id"), "branch_ids": claims.get("branch_ids"), "permissions": claims.get("permissions")}
     except Exception:
         return {}
 

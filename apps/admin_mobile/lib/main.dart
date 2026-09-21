@@ -367,7 +367,7 @@ class AlertTile extends StatelessWidget {
       ),
       title: Text(title, style: const TextStyle(fontWeight: FontWeight.w800)),
       subtitle: Text(subtitle),
-      trailing: const Icon(Icons.chevron_left_rounded),
+      trailing: Icon(Icons.chevron_left_rounded),
     ),
   );
 }
@@ -386,17 +386,17 @@ class SettingsPage extends StatelessWidget {
       Card(child: SwitchListTile(
         value: false,
         onChanged: (_) {},
-        title: const Text('Online', style: TextStyle(fontWeight: FontWeight.bold)),
-        subtitle: const Text('ربط الحساب بالسيرفر المركزي'),
+        title: Text('Online', style: TextStyle(fontWeight: FontWeight.bold)),
+        subtitle: Text('ربط الحساب بالسيرفر المركزي'),
         secondary: const Icon(Icons.cloud_outlined),
       )),
       const SizedBox(height: 10),
       const Card(child: Column(children: [
-        const ListTile(leading: Icon(Icons.account_circle_outlined), title: const Text('حساب الشركة'), subtitle: const Text('تسجيل الدخول وربط الفروع'), trailing: const Icon(Icons.chevron_left)),
+        ListTile(leading: Icon(Icons.account_circle_outlined), title: Text('حساب الشركة'), subtitle: Text('تسجيل الدخول وربط الفروع'), trailing: Icon(Icons.chevron_left)),
         const Divider(height: 1),
-        const ListTile(leading: Icon(Icons.backup_outlined), title: const Text('النسخ الاحتياطي'), subtitle: const Text('إعدادات النسخ والاسترجاع'), trailing: const Icon(Icons.chevron_left)),
+        ListTile(leading: Icon(Icons.backup_outlined), title: Text('النسخ الاحتياطي'), subtitle: Text('إعدادات النسخ والاسترجاع'), trailing: Icon(Icons.chevron_left)),
         const Divider(height: 1),
-        const ListTile(leading: Icon(Icons.security_outlined), title: const Text('الأمان والصلاحيات'), subtitle: const Text('المستخدمون والأدوار وسجل التدقيق'), trailing: const Icon(Icons.chevron_left)),
+        ListTile(leading: Icon(Icons.security_outlined), title: Text('الأمان والصلاحيات'), subtitle: Text('المستخدمون والأدوار وسجل التدقيق'), trailing: Icon(Icons.chevron_left)),
       ])),
     ],
   );

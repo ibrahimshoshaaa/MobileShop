@@ -10,8 +10,11 @@ from inventory_tab import ProductPickerWindow
 
 
 class MaintenanceTab(ttk.Frame):
-    def __init__(self, master):
+    def __init__(self, master, repo=maintenance_repo, customers_repo_module=customers_repo, inventory_repo_module=inventory_repo):
         super().__init__(master)
+        self.repo = repo
+        self.customers_repo_module = customers_repo_module
+        self.inventory_repo_module = inventory_repo_module
         self._build()
         self.reload()
 
@@ -37,14 +40,14 @@ class MaintenanceTab(ttk.Frame):
 
     def reload(self):
         self.tree.delete(*self.tree.get_children())
-        self._tickets = {t.id: t for t in maintenance_repo.list_tickets()}
+        self._tickets = {t.id: t for t in self.repo.list_tickets()}
         for t in self._tickets.values():
             tag = {"DELIVERED": "delivered", "CANCELLED": "cancelled", "READY": "ready"}.get(t.status, "")
             self.tree.insert("", "end", iid=t.id, values=(t.device, t.customer_name, t.problem, t.status_label),
                               tags=(tag,) if tag else ())
 
     def _new_ticket(self):
-        window = NewTicketWindow(self)
+        window = NewTicketWindow(self, repo=self.repo, customers_repo_module=self.customers_repo_module)
         self.wait_window(window)
         self.reload()
 
@@ -54,14 +57,16 @@ class MaintenanceTab(ttk.Frame):
             return
         ticket = self._tickets.get(selection[0])
         if ticket:
-            window = TicketDetailWindow(self, ticket.id)
+            window = TicketDetailWindow(self, ticket.id, repo=self.repo, inventory_repo_module=self.inventory_repo_module)
             self.wait_window(window)
             self.reload()
 
 
 class NewTicketWindow(tk.Toplevel):
-    def __init__(self, master):
+    def __init__(self, master, repo=maintenance_repo, customers_repo_module=customers_repo):
         super().__init__(master)
+        self.repo = repo
+        self.customers_repo_module = customers_repo_module
         self.customer = None
         self.title("طلب صيانة جديد")
         self.geometry("380x460")
@@ -93,7 +98,7 @@ class NewTicketWindow(tk.Toplevel):
         ttk.Button(self, text="إنشاء الطلب", command=self._submit).pack(pady=12)
 
     def _pick_customer(self):
-        picker = CustomerPickerWindow(self)
+        picker = CustomerPickerWindow(self, repo=self.customers_repo_module)
         self.wait_window(picker)
         if picker.selected_customer:
             self.customer = picker.selected_customer
@@ -116,9 +121,11 @@ class NewTicketWindow(tk.Toplevel):
 
 
 class TicketDetailWindow(tk.Toplevel):
-    def __init__(self, master, ticket_id):
+    def __init__(self, master, ticket_id, repo=maintenance_repo, inventory_repo_module=inventory_repo):
         super().__init__(master)
         self.ticket_id = ticket_id
+        self.repo = repo
+        self.inventory_repo_module = inventory_repo_module
         self.title("تفاصيل طلب الصيانة")
         self.geometry("460x560")
         self.body = ttk.Frame(self)
@@ -131,6 +138,7 @@ class TicketDetailWindow(tk.Toplevel):
             widget.destroy()
         ticket = next(t for t in maintenance_repo.list_tickets() if t.id == self.ticket_id)
         self.ticket = ticket
+        self.repo = repo
         pad = {"padx": 12, "pady": 4}
 
         ttk.Label(self.body, text=f"الجهاز: {ticket.device}").pack(anchor="e", **pad)
@@ -191,7 +199,7 @@ class TicketDetailWindow(tk.Toplevel):
         self._render()
 
     def _add_part(self):
-        picker = ProductPickerWindow(self)
+        picker = ProductPickerWindow(self, repo=self.inventory_repo_module)
         self.wait_window(picker)
         product = picker.selected_product
         if not product:
@@ -209,7 +217,7 @@ class TicketDetailWindow(tk.Toplevel):
         self._render()
 
     def _deliver(self):
-        dialog = DeliverDialog(self, self.ticket)
+        dialog = DeliverDialog(self, self.ticket, repo=self.repo)
         self.wait_window(dialog)
         self._render()
 
@@ -239,7 +247,7 @@ def _ask_quantity(parent):
 
 
 class DeliverDialog(tk.Toplevel):
-    def __init__(self, master, ticket):
+    def __init__(self, master, ticket, repo=maintenance_repo)
         super().__init__(master)
         self.ticket = ticket
         self.title("تسليم الجهاز")

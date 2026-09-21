@@ -1,12 +1,3 @@
-import 'sqlite_supplier_repository.dart';
-import 'supplier_repository.dart';
+export '../../core/repository_factory.dart' show getSupplierRepository;
 
-Future<SupplierRepository>? _cachedRepositoryFuture;
-
-Future<SupplierRepository> getSupplierRepository() {
-  return _cachedRepositoryFuture ??= SqliteSupplierRepository.create();
-}
-
-void resetSupplierRepositoryForTesting() {
-  _cachedRepositoryFuture = null;
-}
+void resetSupplierRepositoryForTesting() {}

@@ -5,3 +5,4 @@ __pycache__/
 *.pyc
 apps/desktop/data/
 backend/api_server/data/
+mobile.json

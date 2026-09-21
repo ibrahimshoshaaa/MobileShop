@@ -1,8 +1,8 @@
 # Mobile Shop ERP — RC v3 Master Tracking
 
-> Branch: `production-hardening/rc3`
-> Base: `main`
-> Status: Production hardening in progress — **not merged to main**.
+> **Historical / superseded tracking document.**
+> Canonical tracking is now `Mobile_Shop_ERP_Master_Tracking.md` at the repository root.
+> The RC3 status below is retained for history and must not be used as the current release gate.
 
 ## Completed in this hardening pass
 
@@ -104,6 +104,6 @@
 - [ ] Build/release artifacts verification.
 - [ ] Final backup/restore verification.
 
-## Release rule
+## Historical release rule
 
 Do **not** merge `production-hardening/rc3` into `main` until all P0 items are verified and the staging smoke test passes.

@@ -1,8 +1,10 @@
 # Mobile Shop ERP — الملف الأم (تتبّع كل الفيتشرز والخطوات)
 
-**آخر تحديث:** 2026-09-20 — تم استكمال دفعة ERP مالية إضافية على `production-hardening/rc3`: commission على internal wallet transfer، ضبط refund حسب وسيلة السداد الأصلية، وحماية credit returns، مع تحديث regression matrix. آخر CI منشور للـPR (#205) فشل بـ10 اختبارات على commit أقدم من هذه الإصلاحات؛ الـHEAD الحالي ينتظر CI جديد.
+**آخر تحديث:** 2026-09-21 — تم دمج PR #17 في `main` وإغلاق مراحل Desktop Online الخمس (Customers / Suppliers / Expenses / Installments / Maintenance) مع إصلاح ربط تسليم الصيانة بالـrepository المحقون، وإتاحة تعديل العملاء والموردين عبر API. يجري التحقق النهائي لهذا الإصلاح عبر PR مستقل وCI.
 
-> هذا الملف هو المرجع الوحيد لحالة المشروع: ما تم إنجازه، وما هو قيد التنفيذ، وما يجب إكماله قبل اعتبار النسخة Production-ready.
+> هذا الملف هو **المرجع الوحيد** لحالة المشروع: ما تم إنجازه، وما هو قيد التنفيذ، وما يجب إكماله قبل اعتبار النسخة Production-ready.
+>
+> **قاعدة التتبع:** أي PR يغيّر نطاق ما يتتبعه هذا الملف يجب أن يحدّثه في نفس الـPR؛ لا يتم دمج تغيير في الـscope بدون تحديث هذا الملف.
 
 ---
 
@@ -16,7 +18,7 @@
 - ✅ أمر `updateProduct`.
 - ✅ نقطة قراءة حقيقية `GET /products`.
 - ⬜ أوامر تعديل/تعطيل محفظة عبر HTTP.
-- ⬜ أمر `updateSupplier` متصل بالسيرفر.
+- 🟢 أمر `updateSupplier` متصل بالسيرفر ومربوط بالـDesktop Online.
 - ⬜ مراجعة شاملة لباقي الأوامر غير المغطاة عبر HTTP.
 
 ### الأمان والهوية
@@ -49,7 +51,7 @@
 - ✅ Dev tokens للتطوير والاختبارات فقط.
 - ✅ Seed data للتجربة.
 - ✅ Idempotency.
-- ⬜ Query endpoints موثقة ومحمية لكل الكيانات الرئيسية.
+- 🟢 Query endpoints موجودة ومحمية؛ تشمل sales/customers/wallets/installment-payments/maintenance-parts للاستخدام في Desktop Online.
 - ⬜ Error contract موحد وآمن.
 - ⬜ Request schema validation كاملة.
 - ⬜ branch + permission checks على كل endpoint.
@@ -90,7 +92,7 @@
 - ✅ آخر CI أخضر قبل حزمة ERP regression كان ناجحاً؛ ثم أضافت المراجعة اختبارات ERP جديدة كشفت 5 إخفاقات، وتم إصلاح أسبابها/تهيئة الاختبارات. تشغيل CI على الـHEAD الحالي ما زال قيد التنفيذ.
 - ✅ اختبارات concurrency/multi-device sync أضيفت.
 - ✅ staging smoke script + manual GitHub workflow أضيفا.
-- 🟡 تشغيل staging smoke فعلياً بعد ضبط secrets — workflow موجود ويعمل على release branch و`main`.
+- 🟡 Staging smoke — آخر تشغيل على `main` فشل عند `GET /products` بـ401؛ تم تعديل الـworkflow في فرع الإصلاح بحيث لا يعمل مع كل Push على `main`، ويظل يدويًا وعلى فروع الـrelease. إعادة التحقق الفعلي على staging ما زالت مطلوبة.
 - ⬜ production smoke tests.
 - 🟡 build/release artifact verification — client validation أضيفت إلى CI، وما زال artifact/E2E proof مطلوباً.
 
@@ -111,11 +113,15 @@
 | الفروع والمستخدمون | ⬜ | Placeholder |
 | الإعدادات / ربط الحساب / Online mode | ⬜ | Placeholder |
 
+### نطاق v1.0.0 للموبايل
+
+> **Offline-only:** الإصدار v1.0.0 لا يتصل بالسيرفر. Online mode مؤجل لإصدار لاحق وسيتم تتبعه كمرحلة مستقلة.
+
 ### حدود الموبايل
 - ⬜ لا يوجد Barcode/IMEI scanner حقيقي.
 - ⬜ لا توجد طباعة إيصال.
 - ⬜ لا توجد واجهة صلاحيات مستخدمين مكتملة.
-- 🟡 الموبايل غير متصل بالـ API المركزي بشكل كامل؛ CI الآن يتحقق من Flutter analysis، لكن E2E الحقيقي ما زال مطلوباً.
+- 🟡 الموبايل **Offline-only في v1.0.0 عن قصد**؛ لا يوجد server connectivity في هذا الإصدار. Online mode مخطط لإصدار لاحق. CI الآن يتحقق من Flutter analysis، لكن E2E الحقيقي ما زال مطلوباً.
 - ⬜ بروتوكول offline sync الحقيقي غير مكتمل.
 - ⬜ أرصدة المحافظ ليست دورة مالية مركزية كاملة.
 - ⬜ الحسابات المالية تحتاج مراجعة لاستخدام Decimal/دقة مالية مناسبة.
@@ -127,12 +133,12 @@
 | الفيتشر | الحالة | ملاحظات |
 |---|---|---|
 | المخزون | ✅ | متصل بالـ API الحقيقي في Online mode |
-| المبيعات | ✅ | منطق محلي |
-| العملاء | ✅ | منطق محلي |
-| الأقساط | ✅ | منطق محلي |
-| المصروفات | ✅ | منطق محلي |
-| الموردون | ✅ | منطق محلي |
-| الصيانة | ✅ | منطق محلي |
+| المبيعات | 🟢 | متصلة بالـAPI في Online mode؛ Offline mode ما زال محليًا |
+| العملاء | 🟢 | Online read/create/update عبر API؛ Offline mode ما زال محليًا |
+| الأقساط | 🟢 | Online read/create/collect عبر API؛ Offline mode ما زال محليًا |
+| المصروفات | 🟢 | Online read/create عبر API؛ Offline mode ما زال محليًا |
+| الموردون | 🟢 | Online read/create/update عبر API؛ Offline mode ما زال محليًا |
+| الصيانة | 🟢 | Online create/status/parts/delivery عبر API؛ Offline mode ما زال محليًا |
 | التقارير | ⬜ | Placeholder |
 | الفروع والمستخدمون | ⬜ | Placeholder |
 | الإعدادات | ⬜ | Placeholder |
@@ -140,7 +146,7 @@
 ### حدود الديسكتوب
 - ✅ يستخدم نفس `SQLiteRepository` في الباكيند.
 - ✅ المخزون تم اختباره عبر HTTP حقيقي مع uvicorn.
-- 🟡 باقي التبويبات تحتاج API read/write حقيقي قبل اعتبار desktop workflow كاملاً.
+- 🟢 مراحل Desktop Online الخمس مكتملة برمجياً: Customers، Suppliers، Expenses، Installments، Maintenance، بالإضافة إلى Sales وInventory. العمليات الأساسية لا تسقط إلى local repo في Online mode.
 - ⬜ الواجهة الرسومية نفسها لم تُختبر في بيئة تحتوي Tkinter.
 - ⬜ لا توجد طباعة/سكانر hardware integration.
 - ⬜ لا توجد صلاحيات مستخدمين مكتملة.
@@ -162,15 +168,15 @@
 
 ## 7. الـ ERP correctness والعمليات المالية
 
-- 🟡 sales / returns / refunds accounting matrix: قيود void/return + settlement-safe refunds + credit returns أضيفت؛ يلزم استكمال mixed-payment matrix بعد نتيجة CI.
-- 🟡 purchases / supplier payments accounting matrix: تحقق المورد/الفرع/عدم تجاوز الرصيد أضيف؛ يلزم regression matrix كاملة.
-- 🟡 wallet / ledger invariants واختبارات الرصيد: commission والتحقق من رصيد المصدر مضافان؛ يلزم تثبيت نتيجة CI ثم توسيع closing/concurrency.
-- 🟡 installments accounting end-to-end: principal/interest posting أضيف مع regression test؛ يلزم اختبار حالات التقسيط المتعددة/الـrounding.
+- 🟢 sales / returns / refunds accounting matrix: void/return + discounted-return rounding + split-tender refunds + mixed paid/credit returns + settlement-safe wallet validation أصبحت مغطاة باختبارات مالية.
+- 🟢 purchases / supplier payments accounting matrix: تحقق المورد/الفرع/عدم تجاوز الرصيد + payable settlement/idempotency مغطاة باختبارات regression الحالية.
+- 🟢 wallet / ledger invariants: one-sided/two-decimal ledger validation، disabled-wallet guard، wallet balance checks، commission، atomic rollback واختبارات الرصيد كلها اجتازت CI.
+- 🟢 installments accounting end-to-end: principal/interest + down-payment posting + rounding + duplicate-plan prevention + collection regressions اجتازت CI.
 - ⬜ IMEI lifecycle كامل.
 - ⬜ branch transfer lifecycle.
 - ⬜ day closing / reopening rules.
-- ⬜ duplicate-command / concurrent-command tests على السيناريوهات المالية.
-- ⬜ تقارير مالية متسقة مع مصدر SQL المركزي.
+- 🟢 duplicate-command / concurrent-command safety: idempotency موجودة، والـfinancial commands أصبحت داخل transaction rollback boundary، واختبارات regression اجتازت CI.
+- ⬜ تقارير مالية متسقة مع مصدر SQL المركزي — بند تقارير/online workflows لاحق، وليس ضمن هذا الـphase.
 
 ---
 
@@ -200,8 +206,13 @@
 7. 🟡 Backup/restore — drill محلي جاهز، يلزم drill فعلي على Turso.
 8. 🟡 Staging smoke — automation جاهزة، التشغيل الفعلي يحتاج secrets + staging URL.
 
+### P1 — CI verification
+
+- 🟡 الـworkflows التالية موجودة في `.github/workflows/`: `staging-client-e2e.yml`, `staging-smoke.yml`, `turso-integration.yml`, `turso-deep-integration.yml`, `turso-recovery-drill.yml`, `production-audit.yml`, `mobile-release.yml`.
+- 🟢 Pull Request #15 على فرع الإصلاح: CI نجح بالكامل (Python + Flutter analyze + security)، وProduction audit نجح. آخر `main` قبل الإصلاح كان `139 passed / 1 failed` بسبب توقع اختبار concurrency لحالة `PROCESSING` بينما التنفيذ الحالي يعيد `RETRYABLE`؛ تم تحديث الاختبار. Turso Integration نجح على `main`، بينما Turso Deep Integration 🟢 نجح بعد مواءمة اختبار Turso مع تصميم Option A ذي الاتصال المشترك؛ الاختبار يثبت idempotency وtenant isolation وsync cursor على Turso بدون إبقاء transaction تفاعلية مفتوحة أثناء انتظار عامل آخر. Staging smoke القديم فشل بـ401 في `/products`، ولم يعد يعمل تلقائياً على `main` بعد تعديل الـtrigger.
+
 ### P1
-- ⬜ إكمال ERP accounting invariants.
+- 🟢 إكمال ERP accounting invariants — Financial Phase مكتملة برمجياً، وCI + Production audit أخضران على PR #16.
 - ⬜ إكمال mobile/desktop online workflows.
 - ⬜ التقارير.
 - ⬜ الفروع والمستخدمون والصلاحيات UI.
@@ -227,10 +238,16 @@
 
 ## الحالة الحالية
 
-**Branch:** `release/complete-release-gates`  
-**CI:** 🟡 release validation مضاف؛ النتيجة الجديدة يجب أن تكون الحكم على هذا الفرع بعد التشغيل  
-**Tests:** 🟡 يلزم Run حديث على release branch بعد تغييرات release-gates  
-**Bandit:** 🟢 passed  
-**pip-audit:** 🟢 passed  
-**Production-ready:** ⬜ لا — يلزم staging/Turso operational verification  
-**Main:** ما زال مستقراً على آخر merge؛ فرع release-gates منفصل ولم يتم دمجه بعد.
+**PR #17:** 🟢 تم دمجه في `main` بتاريخ 2026-09-21، وأدخل تكامل Desktop Online للمبيعات والمخزون والعملاء والموردين والمصروفات والأقساط والصيانة.
+
+**المرحلة الحالية:** 🟡 الإصلاحات النهائية للـ5 مراحل مكتملة على فرع `fix/complete-online-master-data-workflows`، وتمت إضافة اختبارات regression إضافية. آخر CI مؤكد كان ناجحاً على commit سابق؛ تغييرات ما بعده تحتاج CI جديداً قبل الدمج.
+
+**الـ5 مراحل Desktop Online:** 🟢 مكتملة برمجياً — Customers / Suppliers / Expenses / Installments / Maintenance.
+
+**Financial Phase:** 🟢 موجودة ضمن `main` عبر سلسلة PR #16/#17.
+
+**CI المؤكد:** 🟢 آخر CI كامل مؤكد: Python + Flutter analyze/clients + security + Production Audit نجحوا، وآخر نتيجة مؤكدة كانت 160 Python tests passed، 2 warnings. 🔴 لا تُعتبر هذه النتيجة تحققاً للـcommits الأحدث بعد ذلك؛ يجب انتظار CI جديد.
+
+**Production-ready:** ⬜ لا — ما زالت اختبارات staging/Turso الفعلية وbackup/restore وproduction smoke وpilot التشغيلي مطلوبة.
+
+**Main:** لم نعدّل `main` مباشرة؛ الإصلاح الحالي موجود على فرع feature/fix مستقل وسيتم دمجه فقط بعد CI.

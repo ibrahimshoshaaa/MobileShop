@@ -18,22 +18,22 @@ _DEV_TOKENS = {
         "tenant_id": "dev-tenant",
         "branch_ids": ("LOCAL_BRANCH",),
         "permissions": (
-            "sales.create", "sales.void", "sales.return", "sales.discount",
-            "products.edit", "customers.edit", "customers.collect", "suppliers.edit", "wallets.edit",
+            "sales.create", "sales.read", "sales.void", "sales.return", "sales.discount",
+            "inventory.read", "customers.read", "wallets.read", "products.edit", "customers.edit", "customers.collect", "suppliers.edit", "wallets.edit",
             "purchases.create", "purchases.pay_supplier", "expenses.create",
             "stock.adjust", "stock.transfer", "wallet.adjust", "wallet.transfer",
             "transfer.create", "transfer.override_commission",
             "installments.create", "installments.collect",
             "maintenance.create", "maintenance.update", "maintenance.parts",
             "closing.close", "permissions.change", "settings.change",
-            "employees.salary", "inventory.create_unit",
+            "employees.salary", "inventory.create_unit", "branches.read", "branches.manage", "users.read", "users.manage", "roles.read", "roles.manage", "reports.read",
         ),
     },
     "dev-cashier-token": {
         "uid": "dev-cashier",
         "tenant_id": "dev-tenant",
         "branch_ids": ("LOCAL_BRANCH",),
-        "permissions": ("sales.create", "customers.edit", "installments.collect"),
+        "permissions": ("sales.create", "sales.read", "inventory.read", "customers.read", "wallets.read", "customers.edit", "installments.collect"),
     },
 }
 

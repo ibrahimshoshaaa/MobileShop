@@ -20,9 +20,15 @@ _RETRYABLE_CODES = {"TEMPORARY_UNAVAILABLE", "DB_BUSY", "NETWORK_ERROR"}
 
 
 class SyncProtocol:
-    """Server-side offline sync protocol."""
+    """Server-side offline sync protocol.
+
+    When a connection is supplied, the caller owns its lifecycle. The API
+    server passes the DurableERPCommandEngine connection so a command's
+    business mutation and its sync receipt/event are committed atomically.
+    """
 
     def __init__(self, path: str | Path = "sync_protocol.db", connection=None):
+        self._owns_connection = connection is None
         if connection is not None:
             self.db = connection
         else:
@@ -77,131 +83,150 @@ class SyncProtocol:
         with self._lock:
             return self._upload_locked(envelopes, tenant_id=tenant_id, branch_id=branch_id, executor=executor, limit=limit)
 
+    def _request_hash(self, envelope: dict) -> str:
+        return hashlib.sha256(
+            json.dumps(
+                envelope, sort_keys=True, separators=(",", ":"),
+                ensure_ascii=False, default=str,
+            ).encode()
+        ).hexdigest()
+
+    def _read_receipt(self, tenant_id: str, branch_id: str, command_id: str):
+        return self.db.execute(
+            "SELECT status,result_json,error_code,request_hash,claimed_at "
+            "FROM sync_receipts WHERE tenant_id=? AND branch_id=? AND command_id=?",
+            (tenant_id, branch_id, command_id),
+        ).fetchone()
+
+    def _replay_result(self, command_id: str, row, *, idempotent_replay: bool = True) -> dict:
+        return {
+            "command_id": command_id,
+            "status": row[0],
+            "result": json.loads(row[1]) if row[1] else None,
+            "error_code": row[2],
+            "retryable": row[0] == "PROCESSING",
+            "idempotent_replay": idempotent_replay,
+        }
+
+    def _begin(self) -> None:
+        for attempt in range(5):
+            try:
+                self.db.execute("BEGIN IMMEDIATE")
+                return
+            except Exception as exc:
+                message = str(exc)
+                if "SQLITE_BUSY" not in message and "database is locked" not in message:
+                    raise
+                if attempt == 4:
+                    raise DomainError("DB_BUSY", "قاعدة البيانات مشغولة مؤقتاً.", {}) from exc
+                time.sleep(0.05 * (attempt + 1))
+
     def _upload_locked(self, envelopes, *, tenant_id: str, branch_id: str,
                        executor: Callable[[dict], object], limit: int = 100):
         envelopes = list(envelopes)
         if len(envelopes) > limit:
             raise DomainError("SYNC_BATCH_TOO_LARGE", "دفعة المزامنة كبيرة جداً.", {"limit": limit})
+
         results = []
         for envelope in envelopes:
             command_id = str(envelope.get("command_id", "")).strip()
-            env_tenant = envelope.get("tenant_id")
-            env_branch = envelope.get("branch_id")
-            if not command_id or env_tenant != tenant_id or env_branch != branch_id:
-                results.append({"command_id": command_id, "status": "CONFLICT", "error_code": "ACCOUNT_SCOPE_MISMATCH"})
-                continue
-
-            request_hash = hashlib.sha256(json.dumps(envelope, sort_keys=True, separators=(",", ":"), ensure_ascii=False, default=str).encode()).hexdigest()
-            row = self.db.execute(
-                "SELECT status,result_json,error_code,request_hash FROM sync_receipts WHERE tenant_id=? AND branch_id=? AND command_id=?",
-                (tenant_id, branch_id, command_id),
-            ).fetchone()
-            self.db.commit()
-            if row:
-                if row[3] and row[3] != request_hash:
-                    results.append({"command_id": command_id, "status": "CONFLICT", "error_code": "IDEMPOTENCY_KEY_REUSE"})
-                    continue
+            if not command_id or envelope.get("tenant_id") != tenant_id or envelope.get("branch_id") != branch_id:
                 results.append({
-                    "command_id": command_id, "status": row[0],
-                    "result": json.loads(row[1]) if row[1] else None,
-                    "error_code": row[2],
-                    "retryable": row[0] == "PROCESSING",
-                    "idempotent_replay": True,
+                    "command_id": command_id,
+                    "status": "CONFLICT",
+                    "error_code": "ACCOUNT_SCOPE_MISMATCH",
                 })
                 continue
 
-            claimed = False
-            for attempt in range(5):
-                try:
-                    self.db.execute(
-                        "INSERT INTO sync_receipts(tenant_id,branch_id,command_id,status,request_hash,claimed_at) VALUES(?,?,?,?,?,?)",
-                        (tenant_id, branch_id, command_id, "PROCESSING", request_hash, time.time()),
-                    )
-                    self.db.commit()
-                    claimed = True
-                    break
-                except Exception as exc:
-                    message = str(exc)
-                    is_unique = isinstance(exc, sqlite3.IntegrityError) or "UNIQUE constraint failed" in message
-                    is_busy = "SQLITE_BUSY" in message or "database is locked" in message
-                    try:
-                        self.db.rollback()
-                    except Exception as rollback_exc:
-                        logger.debug("sync claim rollback failed", exc_info=rollback_exc)
-                    if is_busy:
-                        if attempt < 4:
-                            time.sleep(0.05 * (attempt + 1))
-                            continue
-                        raise DomainError("DB_BUSY", "قاعدة البيانات مشغولة مؤقتاً.", {}) from exc
-                    if not is_unique:
-                        raise
-
-                    row = None
-                    for read_attempt in range(8):
-                        try:
-                            row = self.db.execute(
-                                "SELECT status,result_json,error_code,request_hash,claimed_at FROM sync_receipts WHERE tenant_id=? AND branch_id=? AND command_id=?",
-                                (tenant_id, branch_id, command_id),
-                            ).fetchone()
-                            self.db.commit()
-                            break
-                        except Exception as read_exc:
-                            read_message = str(read_exc)
-                            read_busy = "SQLITE_BUSY" in read_message or "database is locked" in read_message
-                            try:
-                                self.db.rollback()
-                            except Exception as rollback_exc:
-                                logger.debug("sync receipt-read rollback failed", exc_info=rollback_exc)
-                            if not read_busy or read_attempt == 7:
-                                raise
-                            time.sleep(0.05 * (read_attempt + 1))
-                    if row and row[3] == request_hash:
-                        # Never auto-expire PROCESSING claims. An age-based reclaim
-                        # can overlap a still-running executor and execute the same
-                        # financial command twice. Recovery must be an explicit
-                        # operational action after the original worker is confirmed dead.
-                        results.append({"command_id": command_id, "status": row[0], "result": json.loads(row[1]) if row[1] else None, "error_code": row[2], "retryable": row[0] == "PROCESSING"})
-                        break
-                    else:
-                        results.append({"command_id": command_id, "status": "CONFLICT", "error_code": "IDEMPOTENCY_KEY_REUSE"})
-                    break
-
-            if not claimed:
+            request_hash = self._request_hash(envelope)
+            row = self._read_receipt(tenant_id, branch_id, command_id)
+            if row:
+                if row[3] and row[3] != request_hash:
+                    results.append({
+                        "command_id": command_id,
+                        "status": "CONFLICT",
+                        "error_code": "IDEMPOTENCY_KEY_REUSE",
+                    })
+                else:
+                    results.append(self._replay_result(command_id, row))
                 continue
 
+            # IMPORTANT: the PROCESSING claim is deliberately kept in the same
+            # database transaction as the executor. If the process dies before
+            # APPLIED is written, SQLite/libSQL rolls back both the business
+            # mutation and the claim; there is no permanently stuck receipt and
+            # no need for unsafe time-based reclaim.
+            self._begin()
             try:
+                self.db.execute(
+                    "INSERT INTO sync_receipts"
+                    "(tenant_id,branch_id,command_id,status,request_hash,claimed_at)"
+                    " VALUES(?,?,?,?,?,?)",
+                    (tenant_id, branch_id, command_id, "PROCESSING", request_hash, time.time()),
+                )
+
                 result = executor(envelope)
                 result_json = json.dumps(result, default=str, ensure_ascii=False, sort_keys=True)
+
                 self.db.execute(
-                    "UPDATE sync_receipts SET status='APPLIED', result_json=?, error_code=NULL, claimed_at=NULL WHERE tenant_id=? AND branch_id=? AND command_id=?",
+                    "UPDATE sync_receipts SET status='APPLIED', result_json=?, "
+                    "error_code=NULL, claimed_at=NULL "
+                    "WHERE tenant_id=? AND branch_id=? AND command_id=?",
                     (result_json, tenant_id, branch_id, command_id),
                 )
                 self.db.execute(
-                    "INSERT INTO sync_events(tenant_id,branch_id,command_id,event_type,payload_json) VALUES(?,?,?,?,?)",
+                    "INSERT INTO sync_events"
+                    "(tenant_id,branch_id,command_id,event_type,payload_json)"
+                    " VALUES(?,?,?,?,?)",
                     (tenant_id, branch_id, command_id, "COMMAND_APPLIED", result_json),
                 )
                 self.db.commit()
-                results.append({"command_id": command_id, "status": "APPLIED", "result": json.loads(result_json)})
+                results.append({
+                    "command_id": command_id,
+                    "status": "APPLIED",
+                    "result": json.loads(result_json),
+                })
             except DomainError as exc:
+                try:
+                    self.db.rollback()
+                except Exception:
+                    logger.debug("sync rollback failed", exc_info=True)
+
+                # The business transaction and PROCESSING claim are gone. Record
+                # the deterministic domain failure in a fresh transaction.
+                self._begin()
                 code = exc.code
                 status = "CONFLICT" if code in _CONFLICT_CODES else "FAILED"
                 self.db.execute(
-                    "UPDATE sync_receipts SET status=?, error_code=?, result_json=NULL, claimed_at=NULL WHERE tenant_id=? AND branch_id=? AND command_id=?",
-                    (status, code, tenant_id, branch_id, command_id),
+                    "INSERT OR REPLACE INTO sync_receipts"
+                    "(tenant_id,branch_id,command_id,status,result_json,error_code,request_hash,claimed_at)"
+                    " VALUES(?,?,?,?,?,?,?,NULL)",
+                    (tenant_id, branch_id, command_id, status, None, code, request_hash),
                 )
                 self.db.commit()
                 results.append({"command_id": command_id, "status": status, "error_code": code})
             except Exception:
                 try:
                     self.db.rollback()
-                except Exception as rollback_exc:
-                    logger.debug("sync executor rollback failed", exc_info=rollback_exc)
+                except Exception:
+                    logger.debug("sync rollback failed", exc_info=True)
+
+                # Do not preserve a PROCESSING claim after an unexpected
+                # executor failure. A retry must be allowed to execute again.
+                self._begin()
                 self.db.execute(
-                    "UPDATE sync_receipts SET status='RETRYABLE', error_code='TEMPORARY_UNAVAILABLE', claimed_at=NULL WHERE tenant_id=? AND branch_id=? AND command_id=?",
-                    (tenant_id, branch_id, command_id),
+                    "INSERT OR REPLACE INTO sync_receipts"
+                    "(tenant_id,branch_id,command_id,status,result_json,error_code,request_hash,claimed_at)"
+                    " VALUES(?,?,?,?,?,?,?,NULL)",
+                    (tenant_id, branch_id, command_id, "RETRYABLE", None,
+                     "TEMPORARY_UNAVAILABLE", request_hash),
                 )
                 self.db.commit()
-                results.append({"command_id": command_id, "status": "RETRYABLE", "error_code": "TEMPORARY_UNAVAILABLE"})
+                results.append({
+                    "command_id": command_id,
+                    "status": "RETRYABLE",
+                    "error_code": "TEMPORARY_UNAVAILABLE",
+                })
 
         cursor = self.db.execute(
             "SELECT COALESCE(MAX(seq),0) FROM sync_events WHERE tenant_id=? AND branch_id=?",
@@ -227,4 +252,5 @@ class SyncProtocol:
         return {"changes": changes, "next_cursor": next_cursor, "has_more": len(changes) == limit}
 
     def close(self):
-        self.db.close()
+        if self._owns_connection:
+            self.db.close()

@@ -23,7 +23,7 @@ class ERPCommandEngine:
         self.products=Repository(); self.units=Repository(); self.sales=Repository(); self.purchases=Repository()
         self.wallets=Repository(); self.ledger=Repository(); self.stock=Repository(); self.expenses=Repository(); self.audit=Repository()
         self.customers=Repository(); self.suppliers=Repository(); self.installments=Repository(); self.installment_payments=Repository()
-        self.maintenance=Repository(); self.maintenance_parts=Repository(); self.employees=Repository(); self.salary_records=Repository(); self.closings=Repository()
+        self.maintenance=Repository(); self.maintenance_parts=Repository(); self.branches=Repository(); self.users=Repository(); self.roles=Repository(); self.employees=Repository(); self.salary_records=Repository(); self.closings=Repository()
         self.transfers=Repository(); self.returns=Repository(); self.settings=Repository(); self.catalog=Repository(); self._processed={}; self._lock=RLock()
 
     def _auth(self,ctx,perm):
@@ -54,12 +54,21 @@ class ERPCommandEngine:
         w=self.wallets.get(wid)
         if not w: raise DomainError('NOT_FOUND','المحفظة غير موجودة.',{'wallet_id':wid})
         if w.branch_id!=bid: raise DomainError('BRANCH_ACCESS_DENIED','المحفظة خارج الفرع.',{})
+        if not getattr(w,'active',True):
+            raise DomainError('WALLET_DISABLED','المحفظة غير مفعلة.',{'wallet_id':wid})
         return w
     def _balance(self,wid):
         def val(e,k): return getattr(e,k,e.get(k,D0) if isinstance(e,dict) else D0)
         return sum((dec(val(e,'debit'))-dec(val(e,'credit')) for e in self.ledger.all() if val(e,'account_id')==f'wallet:{wid}'),D0)
     def _put(self,repo,obj):
         oid=obj.id if hasattr(obj,'id') else obj['id']
+        if repo is self.ledger:
+            debit=dec(getattr(obj,'debit',obj.get('debit',D0) if isinstance(obj,dict) else D0))
+            credit=dec(getattr(obj,'credit',obj.get('credit',D0) if isinstance(obj,dict) else D0))
+            if debit < D0 or credit < D0 or (debit == D0 and credit == D0) or (debit > D0 and credit > D0):
+                raise DomainError('INVALID_LEDGER_ENTRY','القيد يجب أن يحتوي على مدين أو دائن موجب واحد فقط.',{'entry_id':oid})
+            if debit != money(debit) or credit != money(credit):
+                raise DomainError('INVALID_LEDGER_ENTRY','القيد المالي يجب أن يكون بدقة منزلتين عشريتين.',{'entry_id':oid})
         repo.create(oid, obj, tenant_id=getattr(self, "_active_tenant", None))
 
     def create_purchase(self,command,supplier_id,items,paid=D0):
@@ -85,10 +94,13 @@ class ERPCommandEngine:
                 if q<=0 or cost<0: raise DomainError('INVALID_INPUT','الكمية والتكلفة غير صحيحتين.',{})
                 uid=i.get('product_unit_id')
                 if uid:
+                    if q != D1: raise DomainError('INVALID_INPUT','شراء وحدة IMEI يجب أن يكون بكمية 1.',{})
                     u=self.units.get(uid)
                     if not u: raise DomainError('NOT_FOUND','وحدة المنتج غير موجودة.',{})
                     if u.branch_id!=_ctx(command).branch_id: raise DomainError('BRANCH_ACCESS_DENIED','الوحدة خارج الفرع.',{})
+                    if u.product_id!=i['product_id']: raise DomainError('INVALID_INPUT','وحدة المنتج لا تطابق المنتج المحدد.',{})
                     if u.status=='SOLD': raise DomainError('INVALID_INPUT','الوحدة مباعة بالفعل.',{})
+                    if u.status!='AVAILABLE': raise DomainError('INVALID_INPUT','الوحدة غير متاحة للشراء.',{})
                     unit_updates.append((u,i,cost))
                 elif not self.products.get(i['product_id']): raise DomainError('NOT_FOUND','المنتج غير موجود.',{})
                 pis.append(PurchaseItem(f'{_ctx(command).command_id}:{n}',i['product_id'],q,cost,uid))
@@ -97,8 +109,17 @@ class ERPCommandEngine:
             for u,i,cost in unit_updates:
                 nu=replace(u,status='AVAILABLE',purchase_cost=cost,final_cost=money(cost+u.refurbishing_cost+u.direct_cost))
                 self.units.update(u.id,nu); self._put(self.stock,StockMovement(f'{p.id}:{u.id}',p.branch_id,i['product_id'],D0,'PURCHASE',p.id,u.id,nu.final_cost))
+            # Every purchase increases branch stock and creates the supplier payable.
+            # Payment then settles part (or all) of that payable.
+            for n, i in enumerate(items):
+                if not i.get('product_unit_id'):
+                    q=dec(i['quantity']); cost=money(i['unit_cost'])
+                    self._put(self.stock,StockMovement(f'{p.id}:stock:{n}',p.branch_id,i['product_id'],q,'PURCHASE',p.id,None,cost))
             self._put(self.ledger,LedgerEntry(f'{p.id}:inventory',p.branch_id,'inventory','PURCHASE',debit=total,reference_id=p.id))
-            if paid:self._put(self.ledger,LedgerEntry(f'{p.id}:wallet',p.branch_id,f'wallet:{wallet_id}','PURCHASE_PAYMENT',credit=paid,reference_id=p.id))
+            self._put(self.ledger,LedgerEntry(f'{p.id}:payable',p.branch_id,f'payable:{supplier_id}','PURCHASE_PAYABLE',credit=total,reference_id=p.id))
+            if paid:
+                self._put(self.ledger,LedgerEntry(f'{p.id}:wallet',p.branch_id,f'wallet:{wallet_id}','PURCHASE_PAYMENT',credit=paid,reference_id=p.id))
+                self._put(self.ledger,LedgerEntry(f'{p.id}:payable-payment',p.branch_id,f'payable:{supplier_id}','SUPPLIER_PAYMENT',debit=paid,reference_id=p.id))
             self._audit(_ctx(command),'CREATE_PURCHASE',p.id,{'total':str(total),'paid':str(paid)}); self._processed[_ctx(command).idempotency_key]=p; return p
 
     def _available_qty(self,bid,pid):
@@ -107,7 +128,7 @@ class ERPCommandEngine:
         prod=self.products.get(pid)
         movements=[m for m in self.stock.all() if m.branch_id==bid and m.product_id==pid and not m.unit_id]
         qty=sum((m.quantity for m in movements),D0); value=sum((m.quantity*m.cost for m in movements),D0)
-        return (value/qty if qty else (prod.default_cost if prod else D0))
+        return money(value/qty) if qty else money(prod.default_cost if prod else D0)
 
     def create_sale(self,command):
         with self._lock:
@@ -122,9 +143,11 @@ class ERPCommandEngine:
                 if q<=0 or price<0: raise DomainError('INVALID_INPUT','الكمية والسعر غير صحيحين.',{})
                 uid=r.get('product_unit_id'); cost=D0
                 if uid:
+                    if q != D1: raise DomainError('INVALID_INPUT','بيع وحدة IMEI يجب أن يكون بكمية 1.',{})
                     u=self.units.get(uid)
                     if not u: raise DomainError('NOT_FOUND','وحدة المنتج غير موجودة.',{})
                     if u.branch_id!=_ctx(command).branch_id: raise DomainError('BRANCH_ACCESS_DENIED','الوحدة خارج الفرع.',{})
+                    if u.product_id!=r['product_id']: raise DomainError('INVALID_INPUT','وحدة المنتج لا تطابق المنتج المحدد.',{})
                     if u.status=='SOLD': raise DomainError('IMEI_ALREADY_SOLD','هذا الـIMEI تم بيعه بالفعل.',{})
                     if u.status!='AVAILABLE': raise DomainError('INVALID_INPUT','الوحدة غير متاحة للبيع.',{})
                     cost=u.final_cost
@@ -154,8 +177,8 @@ class ERPCommandEngine:
             if receivable and s.customer_id:
                 self._put(self.ledger,LedgerEntry(f'{s.id}:customer',s.branch_id,f'customer:{s.customer_id}','SALE_CREDIT',debit=receivable,reference_id=s.id))
             if cost_total:
-                self._put(self.ledger,LedgerEntry(f'{s.id}:cogs',s.branch_id,'cost_of_goods_sold','SALE',debit=cost_total,reference_id=s.id))
-                self._put(self.ledger,LedgerEntry(f'{s.id}:inventory',s.branch_id,'inventory','SALE',credit=cost_total,reference_id=s.id))
+                self._put(self.ledger,LedgerEntry(f'{s.id}:cogs',s.branch_id,'cost_of_goods_sold','SALE',debit=money(cost_total),reference_id=s.id))
+                self._put(self.ledger,LedgerEntry(f'{s.id}:inventory',s.branch_id,'inventory','SALE',credit=money(cost_total),reference_id=s.id))
             self._audit(_ctx(command),'CREATE_SALE',s.id,{'total':str(total),'discount':str(discount)}); self._processed[_ctx(command).idempotency_key]=s; return s
 
     def void_sale(self,command,sale_id,reason=''):
@@ -166,6 +189,11 @@ class ERPCommandEngine:
             if not s: raise DomainError('NOT_FOUND','الفاتورة غير موجودة.',{})
             if s.branch_id!=_ctx(command).branch_id: raise DomainError('BRANCH_ACCESS_DENIED','الفاتورة خارج الفرع.',{})
             if s.status=='VOIDED': raise DomainError('SALE_ALREADY_VOIDED','الفاتورة ملغاة بالفعل.',{})
+            if any(
+                isinstance(rr,dict) and rr.get('sale_id')==sale_id
+                for rr in self.returns.all()
+            ):
+                raise DomainError('INVALID_VOID','لا يمكن إلغاء فاتورة سبق تسجيل مرتجع لها.',{})
             # A void reverses the original wallet inflows. Validate every
             # refund wallet before mutating any state so a void cannot create
             # a negative cash/digital balance halfway through the operation.
@@ -201,32 +229,97 @@ class ERPCommandEngine:
                 if not match:raise DomainError('INVALID_RETURN','الصنف غير موجود في الفاتورة.',{})
                 q=dec(r.get('quantity',match.quantity));
                 if q<=0 or q>match.quantity:raise DomainError('INVALID_RETURN','كمية المرتجع غير صحيحة.',{})
-                refund += q*match.unit_price; returned.append((match,q))
+                returned.append((match,q))
+            # The invoice discount must follow the returned items. Refunds are
+            # based on the same effective net selling value used by the invoice,
+            # not the pre-discount unit price.
+            returned_gross=sum((q*i.unit_price for i,q in returned),D0)
+            refund=money(returned_gross)
+            if s.subtotal>0 and s.discount:
+                refund=money(returned_gross * (s.total / s.subtotal))
+            # Never let cumulative returns exceed the invoice's settled value.
+            # The final cent is assigned to the current return to avoid rounding
+            # drift across multiple partial returns.
+            prior_returns=money(sum(
+                (dec(rr.get('amount',D0)) for rr in self.returns.all()
+                 if isinstance(rr,dict) and rr.get('sale_id')==sale_id), D0
+            ))
+            remaining_settlement=money(s.total-prior_returns)
+            if refund>remaining_settlement:
+                refund=remaining_settlement
+            if refund<=0:
+                raise DomainError('INVALID_RETURN','لا توجد قيمة مالية متبقية لهذا المرتجع.',{})
             # Refunds must follow the original settlement method. A credit sale
             # cannot be turned into a cash payout, and a wallet cannot refund more
             # than it originally received for this sale.
             already = {}
-            prior_wallet_refunds = D0
+            prior_wallet_refunds = {}
+            prior_customer_credits = D0
             for rr in self.returns.all():
                 if isinstance(rr,dict) and rr.get('sale_id')==sale_id:
                     for item_id, qty in rr.get('items',()):
                         already[item_id]=already.get(item_id,D0)+dec(qty)
-                    if refund_wallet_id and rr.get('refund_wallet_id')==refund_wallet_id:
-                        prior_wallet_refunds += dec(rr.get('amount',D0))
+                    allocations=rr.get('refund_allocations',())
+                    if allocations:
+                        for wallet_id, amount in allocations:
+                            prior_wallet_refunds[wallet_id]=prior_wallet_refunds.get(wallet_id,D0)+dec(amount)
+                    elif rr.get('refund_wallet_id'):
+                        wid=rr.get('refund_wallet_id')
+                        prior_wallet_refunds[wid]=prior_wallet_refunds.get(wid,D0)+dec(rr.get('amount',D0))
+                    else:
+                        prior_customer_credits += dec(rr.get('amount',D0))
+            requested_now={}
             for match,q in returned:
-                if already.get(match.id,D0)+q > match.quantity:
+                requested_now[match.id]=requested_now.get(match.id,D0)+q
+            for match_id,q in requested_now.items():
+                original=next(i for i in s.items if i.id==match_id)
+                if already.get(match_id,D0)+q > original.quantity:
                     raise DomainError('INVALID_RETURN','تم تجاوز الكمية المتاحة للإرجاع.',{})
+
+            paid_by_wallet={}
+            for payment in s.payments:
+                paid_by_wallet[payment.wallet_id]=paid_by_wallet.get(payment.wallet_id,D0)+payment.amount
+            remaining_wallet_capacity={
+                wid: money(amount-prior_wallet_refunds.get(wid,D0))
+                for wid, amount in paid_by_wallet.items()
+            }
+            original_receivable=money(s.total-sum((p.amount for p in s.payments),D0))
+            remaining_receivable=money(max(D0,original_receivable-prior_customer_credits))
+            total_capacity=money(sum(remaining_wallet_capacity.values(),D0)+remaining_receivable)
+            if refund>total_capacity:
+                raise DomainError('INVALID_RETURN','قيمة المرتجع تتجاوز المبلغ المدفوع والرصيد المستحق.',{})
+
+            refund_allocations=[]
+            customer_credit=D0
             if refund_wallet_id:
                 self._wallet(refund_wallet_id,_ctx(command).branch_id)
-                original_paid=sum((p.amount for p in s.payments if p.wallet_id==refund_wallet_id),D0)
-                refundable=money(original_paid-prior_wallet_refunds)
-                if money(refund)>refundable:
-                    raise DomainError('INVALID_RETURN','قيمة المرتجع أكبر من المبلغ المدفوع من هذه المحفظة.',{})
-                if self._balance(refund_wallet_id) < money(refund):
-                    raise DomainError('INSUFFICIENT_WALLET_BALANCE','رصيد محفظة رد المبلغ غير كافٍ.',{})
-            elif not s.customer_id:
-                raise DomainError('INVALID_RETURN','المرتجع يحتاج محفظة رد أو عميل للفواتير الآجلة.',{})
-            rid=_ctx(command).command_id; self._put(self.returns,{'id':rid,'sale_id':sale_id,'amount':money(refund),'items':tuple((i.id,q) for i,q in returned),'refund_wallet_id':refund_wallet_id})
+                capacity=remaining_wallet_capacity.get(refund_wallet_id,D0)
+                if refund>capacity:
+                    raise DomainError('INVALID_RETURN','قيمة المرتجع أكبر من المبلغ المتاح للإرجاع من هذه المحفظة.',{})
+                if self._balance(refund_wallet_id)<refund:
+                    raise DomainError('INSUFFICIENT_WALLET_BALANCE','رصيد محفظة رد المبلغ غير كافٍ.',{'wallet_id':refund_wallet_id})
+                if refund:
+                    refund_allocations.append((refund_wallet_id,money(refund)))
+            else:
+                remaining=refund
+                for wid, capacity in remaining_wallet_capacity.items():
+                    if remaining<=0: break
+                    allocation=money(min(remaining,capacity))
+                    if allocation<=0: continue
+                    self._wallet(wid,_ctx(command).branch_id)
+                    if self._balance(wid)<allocation:
+                        raise DomainError('INSUFFICIENT_WALLET_BALANCE','رصيد محفظة رد المبلغ غير كافٍ.',{'wallet_id':wid})
+                    refund_allocations.append((wid,allocation))
+                    remaining=money(remaining-allocation)
+                if remaining>0:
+                    customer_credit=money(min(remaining,remaining_receivable))
+                    remaining=money(remaining-customer_credit)
+                if remaining>0:
+                    raise DomainError('INVALID_RETURN','تعذر تسوية قيمة المرتجع بالكامل.',{})
+                if not refund_allocations and customer_credit<=0:
+                    raise DomainError('INVALID_RETURN','المرتجع يحتاج وسيلة تسوية.',{})
+            rid=_ctx(command).command_id
+            self._put(self.returns,{'id':rid,'sale_id':sale_id,'amount':money(refund),'items':tuple((i.id,q) for i,q in returned),'refund_wallet_id':refund_allocations[0][0] if len(refund_allocations)==1 and customer_credit==0 else None,'refund_allocations':tuple(refund_allocations),'customer_credit':customer_credit})
             for i,q in returned:
                 self._put(self.stock,StockMovement(f'{rid}:{i.id}',s.branch_id,i.product_id,q,'RETURN',sale_id,i.product_unit_id,i.cost_snapshot))
                 if i.product_unit_id:self.units.update(i.product_unit_id,replace(self.units.get(i.product_unit_id),status='AVAILABLE'))
@@ -235,10 +328,12 @@ class ERPCommandEngine:
             if refund_cost:
                 self._put(self.ledger,LedgerEntry(f'{rid}:cogs',s.branch_id,'cost_of_goods_sold','RETURN',credit=refund_cost,reference_id=sale_id,reversal_of=f'{sale_id}:cogs'))
                 self._put(self.ledger,LedgerEntry(f'{rid}:inventory',s.branch_id,'inventory','RETURN',debit=refund_cost,reference_id=sale_id))
-            if refund_wallet_id:self._put(self.ledger,LedgerEntry(f'{rid}:wallet',s.branch_id,f'wallet:{refund_wallet_id}','RETURN_REFUND',credit=money(refund),reference_id=sale_id))
-            else:
-                if s.customer_id:
-                    self._put(self.ledger,LedgerEntry(f'{rid}:customer',s.branch_id,f'customer:{s.customer_id}','RETURN_RECEIVABLE',credit=money(refund),reference_id=sale_id))
+            for n,(wid,amount) in enumerate(refund_allocations):
+                self._put(self.ledger,LedgerEntry(f'{rid}:wallet:{n}',s.branch_id,f'wallet:{wid}','RETURN_REFUND',credit=money(amount),reference_id=sale_id))
+            if customer_credit:
+                if not s.customer_id:
+                    raise DomainError('INVALID_RETURN','لا يوجد عميل لتسوية الرصيد المستحق.',{})
+                self._put(self.ledger,LedgerEntry(f'{rid}:customer',s.branch_id,f'customer:{s.customer_id}','RETURN_RECEIVABLE',credit=money(customer_credit),reference_id=sale_id))
             self._audit(_ctx(command),'RETURN_SALE',sale_id,{'amount':str(money(refund))}); self._processed[_ctx(command).idempotency_key]=self.returns.get(rid); return self.returns.get(rid)
 
     def create_expense(self,command,wallet_id,amount,category,note=None):
@@ -256,12 +351,25 @@ class ERPCommandEngine:
         with self._lock:
             self._auth(_ctx(command),'stock.adjust'); old=self._idem(_ctx(command))
             if old:return old
-            q=dec(quantity); c=dec(cost)
+            q=dec(quantity); c=money(cost)
+            if c<0:raise DomainError('INVALID_INPUT','التكلفة لا يمكن أن تكون سالبة.',{})
             if not self.products.get(product_id):raise DomainError('NOT_FOUND','المنتج غير موجود.',{})
             if q==0:raise DomainError('INVALID_INPUT','التعديل لا يمكن أن يكون صفراً.',{})
             if q<0 and self._available_qty(_ctx(command).branch_id,product_id)+q<0:raise DomainError('INSUFFICIENT_STOCK','المخزون غير كافٍ.',{})
+            # A zero adjustment cost must not silently create unvalued inventory;
+            # use the branch weighted-average cost as the valuation basis.
+            if c==0:c=self._avg_cost(_ctx(command).branch_id,product_id)
             m=StockMovement(_ctx(command).command_id,_ctx(command).branch_id,product_id,q,'ADJUSTMENT',_ctx(command).command_id,None,c)
-            self._put(self.stock,m); self._audit(_ctx(command),'ADJUST_STOCK',m.id,{'quantity':str(q),'reason':reason}); self._processed[_ctx(command).idempotency_key]=m; return m
+            self._put(self.stock,m)
+            value=money(abs(q)*c)
+            if value:
+                if q>0:
+                    self._put(self.ledger,LedgerEntry(f'{m.id}:inventory',m.branch_id,'inventory','STOCK_ADJUSTMENT',debit=value,reference_id=m.id))
+                    self._put(self.ledger,LedgerEntry(f'{m.id}:adjustment',m.branch_id,'stock_adjustment','STOCK_ADJUSTMENT',credit=value,reference_id=m.id))
+                else:
+                    self._put(self.ledger,LedgerEntry(f'{m.id}:inventory',m.branch_id,'inventory','STOCK_ADJUSTMENT',credit=value,reference_id=m.id))
+                    self._put(self.ledger,LedgerEntry(f'{m.id}:adjustment',m.branch_id,'stock_adjustment','STOCK_ADJUSTMENT',debit=value,reference_id=m.id))
+            self._audit(_ctx(command),'ADJUST_STOCK',m.id,{'quantity':str(q),'cost':str(c),'reason':reason}); self._processed[_ctx(command).idempotency_key]=m; return m
 
     def transfer_stock(self,command,product_id,quantity,from_branch,to_branch,cost=0):
         with self._lock:
@@ -271,11 +379,23 @@ class ERPCommandEngine:
             if q<=0:raise DomainError('INVALID_INPUT','الكمية يجب أن تكون موجبة.',{})
             if from_branch!=_ctx(command).branch_id:raise DomainError('BRANCH_ACCESS_DENIED','الفرع المصدر غير مصرح.',{})
             if from_branch==to_branch:raise DomainError('INVALID_INPUT','لا يمكن تحويل المخزون إلى نفس الفرع.',{})
+            source_branch=self.branches.get(from_branch); destination_branch=self.branches.get(to_branch)
+            if not source_branch or not source_branch.active:raise DomainError('BRANCH_ACCESS_DENIED','الفرع المصدر غير موجود أو غير مفعّل.',{})
+            if not destination_branch or not destination_branch.active:raise DomainError('BRANCH_ACCESS_DENIED','الفرع المستلم غير موجود أو غير مفعّل.',{})
             if not self.products.get(product_id):raise DomainError('NOT_FOUND','المنتج غير موجود.',{'product_id':product_id})
-            if not str(to_branch).strip():raise DomainError('INVALID_INPUT','الفرع المستلم غير صحيح.',{})
             if self._available_qty(from_branch,product_id)<q:raise DomainError('INSUFFICIENT_STOCK','المخزون غير كافٍ.',{})
-            tid=_ctx(command).command_id; self._put(self.stock,StockMovement(f'{tid}:out',from_branch,product_id,-q,'TRANSFER_OUT',tid,None,dec(cost))); self._put(self.stock,StockMovement(f'{tid}:in',to_branch,product_id,q,'TRANSFER_IN',tid,None,dec(cost)))
-            self._audit(_ctx(command),'TRANSFER_STOCK',tid,{'from':from_branch,'to':to_branch,'quantity':str(q)}); self._processed[_ctx(command).idempotency_key]=tid; return tid
+            c=money(cost)
+            if c<0:raise DomainError('INVALID_INPUT','التكلفة لا يمكن أن تكون سالبة.',{})
+            if c==0:
+                c=self._avg_cost(from_branch,product_id)
+            tid=_ctx(command).command_id
+            self._put(self.stock,StockMovement(f'{tid}:out',from_branch,product_id,-q,'TRANSFER_OUT',tid,None,c))
+            self._put(self.stock,StockMovement(f'{tid}:in',to_branch,product_id,q,'TRANSFER_IN',tid,None,c))
+            value=money(q*c)
+            if value:
+                self._put(self.ledger,LedgerEntry(f'{tid}:source_inventory',from_branch,'inventory','STOCK_TRANSFER',credit=value,reference_id=tid))
+                self._put(self.ledger,LedgerEntry(f'{tid}:destination_inventory',to_branch,'inventory','STOCK_TRANSFER',debit=value,reference_id=tid))
+            self._audit(_ctx(command),'TRANSFER_STOCK',tid,{'from':from_branch,'to':to_branch,'quantity':str(q),'cost':str(c)}); self._processed[_ctx(command).idempotency_key]=tid; return tid
 
     def transfer_between_wallets(self,command,source,destination,amount):
         with self._lock:
@@ -294,7 +414,7 @@ class ERPCommandEngine:
             self._put(self.ledger,LedgerEntry(f'{tid}:commission',_ctx(command).branch_id,'transfer_commission_expense','TRANSFER_COMMISSION',debit=comm,reference_id=tid))
             self._audit(_ctx(command),'TRANSFER_WALLET',tid,{'amount':str(a),'commission':str(comm),'source':s.name,'destination':d.name}); self._processed[_ctx(command).idempotency_key]=tid; return tid
 
-    def create_installment_plan(self,command,sale_id,customer_id,down_payment,rate_percent,term_months,rounding='0.01'):
+    def create_installment_plan(self,command,sale_id,customer_id,down_payment,rate_percent,term_months,rounding='0.01',down_payment_wallet_id=None):
         with self._lock:
             self._auth(_ctx(command),'installments.create'); old=self._idem(_ctx(command))
             if old:return old
@@ -303,13 +423,30 @@ class ERPCommandEngine:
             if s.branch_id!=_ctx(command).branch_id: raise DomainError('BRANCH_ACCESS_DENIED','الفاتورة خارج الفرع.',{})
             if s.customer_id!=customer_id: raise DomainError('INVALID_INPUT','العميل لا يطابق عميل الفاتورة.',{})
             if s.status=='VOIDED': raise DomainError('INVALID_INPUT','لا يمكن تقسيط فاتورة ملغاة.',{})
+            if any(existing.sale_id==sale_id for existing in self.installments.all()):
+                raise DomainError('INSTALLMENT_ALREADY_EXISTS','الفاتورة مرتبطة بخطة تقسيط بالفعل.',{'sale_id':sale_id})
             if self.customers.get(customer_id) is None: raise DomainError('NOT_FOUND','العميل غير موجود.',{'customer_id':customer_id})
             paid=sum((p.amount for p in s.payments),D0)
             receivable=money(s.total-paid)
             down=money(down_payment); rate=dec(rate_percent); term=int(term_months)
             if down<0 or down>receivable or rate<0 or term<=0 or money(receivable-down)<=0:raise DomainError('INVALID_INSTALLMENT_TERM','شروط التقسيط غير صحيحة.',{})
             base=money(receivable-down); inc=money(base*rate/Decimal('100')); due=money(base+inc); monthly=(due/term).quantize(Decimal(str(rounding)),rounding=ROUND_HALF_UP)
-            plan=InstallmentPlan(_ctx(command).command_id,sale_id,customer_id,base,rate,inc,due,term,monthly); self._put(self.installments,plan); self._audit(_ctx(command),'CREATE_INSTALLMENT',plan.id,{'total_due':str(due)}); self._processed[_ctx(command).idempotency_key]=plan; return plan
+            if down:
+                if not down_payment_wallet_id:
+                    raise DomainError('INVALID_PAYMENT','يجب تحديد محفظة للدفعة المقدمة.',{})
+                self._wallet(down_payment_wallet_id,_ctx(command).branch_id)
+                if self._balance(down_payment_wallet_id)<down:
+                    raise DomainError('INSUFFICIENT_WALLET_BALANCE','رصيد المحفظة غير كافٍ.',{})
+            plan=InstallmentPlan(_ctx(command).command_id,sale_id,customer_id,base,rate,inc,due,term,monthly)
+            self._put(self.installments,plan)
+            if down:
+                self._put(self.ledger,LedgerEntry(f'{plan.id}:down:wallet',_ctx(command).branch_id,f'wallet:{down_payment_wallet_id}','INSTALLMENT_DOWN_PAYMENT',debit=down,reference_id=plan.id))
+                self._put(self.ledger,LedgerEntry(f'{plan.id}:down:customer',_ctx(command).branch_id,f'customer:{customer_id}','INSTALLMENT_DOWN_PAYMENT',credit=down,reference_id=plan.id))
+            if inc:
+                self._put(self.ledger,LedgerEntry(f'{plan.id}:interest:customer',_ctx(command).branch_id,f'customer:{customer_id}','INSTALLMENT_INTEREST_ACCRUAL',debit=inc,reference_id=plan.id))
+                self._put(self.ledger,LedgerEntry(f'{plan.id}:interest:income',_ctx(command).branch_id,'installment_interest','INSTALLMENT_INTEREST_ACCRUAL',credit=inc,reference_id=plan.id))
+            self._audit(_ctx(command),'CREATE_INSTALLMENT',plan.id,{'total_due':str(due),'down_payment':str(down)})
+            self._processed[_ctx(command).idempotency_key]=plan; return plan
 
     def collect_installment(self,command,plan_id,amount,wallet_id):
         with self._lock:
@@ -317,7 +454,12 @@ class ERPCommandEngine:
             if old:return old
             p=self.installments.get(plan_id)
             if not p:raise DomainError('NOT_FOUND','خطة التقسيط غير موجودة.',{})
+            sale=self.sales.get(p.sale_id) if getattr(p,'sale_id',None) else None
+            if not sale:raise DomainError('NOT_FOUND','الفاتورة المرتبطة بالتقسيط غير موجودة.',{})
+            if sale.branch_id!=_ctx(command).branch_id:raise DomainError('BRANCH_ACCESS_DENIED','خطة التقسيط خارج الفرع.',{})
             a=money(amount); self._wallet(wallet_id,_ctx(command).branch_id)
+            if a<=0 or self._balance(wallet_id)<a:
+                raise DomainError('INSUFFICIENT_WALLET_BALANCE','رصيد المحفظة غير كافٍ.',{})
             paid=sum((x.amount for x in self.installment_payments.all() if x.plan_id==plan_id),D0)
             if a<=0 or paid+a>p.total_due:raise DomainError('INVALID_PAYMENT','قيمة التحصيل تتجاوز المتبقي.',{})
             if p.customer_id and self.customers.get(p.customer_id) is None:
@@ -333,8 +475,11 @@ class ERPCommandEngine:
             self._put(self.ledger,LedgerEntry(f'{ip.id}:wallet',_ctx(command).branch_id,f'wallet:{wallet_id}','INSTALLMENT_PAYMENT',debit=a,reference_id=plan_id))
             if p.customer_id and principal_part:
                 self._put(self.ledger,LedgerEntry(f'{ip.id}:principal',_ctx(command).branch_id,f'customer:{p.customer_id}','INSTALLMENT_PRINCIPAL',credit=principal_part,reference_id=plan_id))
-            if interest_part:
-                self._put(self.ledger,LedgerEntry(f'{ip.id}:interest',_ctx(command).branch_id,'installment_interest','INSTALLMENT_INTEREST',credit=interest_part,reference_id=plan_id))
+            # Interest is recognized when the plan is created. Collection only
+            # settles the accrued customer receivable; it must not recognize the
+            # same interest income a second time.
+            if p.customer_id and interest_part:
+                self._put(self.ledger,LedgerEntry(f'{ip.id}:interest',_ctx(command).branch_id,f'customer:{p.customer_id}','INSTALLMENT_INTEREST',credit=interest_part,reference_id=plan_id))
             self._audit(_ctx(command),'COLLECT_INSTALLMENT',plan_id,{'amount':str(a),'principal':str(principal_part),'interest':str(interest_part)}); self._processed[_ctx(command).idempotency_key]=ip; return ip
 
     def installment_remaining(self,plan_id):
@@ -358,6 +503,8 @@ class ERPCommandEngine:
             t=self.maintenance.get(ticket_id)
             if not t:raise DomainError('NOT_FOUND','طلب الصيانة غير موجود.',{})
             if t.branch_id!=_ctx(command).branch_id:raise DomainError('BRANCH_ACCESS_DENIED','طلب الصيانة خارج الفرع.',{})
+            if new_status=='DELIVERED':
+                raise DomainError('INVALID_INPUT','تسليم الصيانة يجب أن يتم عبر أمر التسليم المحاسبي.',{})
             if new_status!=self._MAINT.get(t.status):raise DomainError('INVALID_INPUT','انتقال حالة الصيانة غير مسموح.',{'from':t.status,'to':new_status})
             nt=replace(t,status=new_status); self.maintenance.update(ticket_id,nt); self._audit(_ctx(command),'MAINTENANCE_STATUS',ticket_id,{'status':new_status}); self._processed[_ctx(command).idempotency_key]=nt; return nt
     def cancel_maintenance(self,command,ticket_id):
@@ -368,15 +515,28 @@ class ERPCommandEngine:
             if not t:raise DomainError('NOT_FOUND','طلب الصيانة غير موجود.',{})
             if t.branch_id!=_ctx(command).branch_id:raise DomainError('BRANCH_ACCESS_DENIED','طلب الصيانة خارج الفرع.',{})
             if t.status in {'DELIVERED','CANCELLED'}:raise DomainError('INVALID_INPUT','لا يمكن إلغاء الطلب بعد إغلاقه.',{})
-            nt=replace(t,status='CANCELLED'); self.maintenance.update(ticket_id,nt); self._audit(_ctx(command),'CANCEL_MAINTENANCE',ticket_id); self._processed[_ctx(command).idempotency_key]=nt; return nt
+            parts=[p for p in self.maintenance_parts.all() if p.get('ticket_id')==ticket_id]
+            for p in parts:
+                self._put(self.stock,StockMovement(f'{p["id"]}:cancel-return',t.branch_id,p['product_id'],p['quantity'],'MAINTENANCE_CANCEL_RETURN',ticket_id,None,p['cost']))
+                self.maintenance_parts.delete(p['id'])
+            nt=replace(t,status='CANCELLED',parts_cost=D0); self.maintenance.update(ticket_id,nt)
+            self._audit(_ctx(command),'CANCEL_MAINTENANCE',ticket_id,{'returned_parts':len(parts)})
+            self._processed[_ctx(command).idempotency_key]=nt; return nt
     def use_maintenance_part(self,command,ticket_id,product_id,quantity,cost):
         with self._lock:
             self._auth(_ctx(command),'maintenance.parts'); old=self._idem(_ctx(command))
             if old:return old
-            q=dec(quantity); c=dec(cost); t=self.maintenance.get(ticket_id)
+            q=dec(quantity); t=self.maintenance.get(ticket_id)
             if not t:raise DomainError('NOT_FOUND','طلب الصيانة غير موجود.',{})
+            if t.branch_id!=_ctx(command).branch_id:raise DomainError('BRANCH_ACCESS_DENIED','طلب الصيانة خارج الفرع.',{})
+            if t.status in {'DELIVERED','CANCELLED'}:raise DomainError('INVALID_INPUT','لا يمكن استخدام قطع على طلب مغلق.',{})
+            if not self.products.get(product_id):raise DomainError('NOT_FOUND','المنتج غير موجود.',{'product_id':product_id})
+            if q<=0:raise DomainError('INVALID_INPUT','الكمية يجب أن تكون موجبة.',{})
             if self._available_qty(t.branch_id,product_id)<q:raise DomainError('INSUFFICIENT_STOCK','المخزون غير كافٍ.',{})
-            part={'id':_ctx(command).command_id,'ticket_id':ticket_id,'product_id':product_id,'quantity':q,'cost':c}; self._put(self.maintenance_parts,part); self._put(self.stock,StockMovement(f'{part["id"]}:stock',t.branch_id,product_id,-q,'MAINTENANCE_USE',ticket_id,None,c)); nt=replace(t,parts_cost=t.parts_cost+q*c); self.maintenance.update(t.id,nt); self._audit(_ctx(command),'USE_MAINTENANCE_PART',ticket_id,{'product_id':product_id,'quantity':str(q)}); self._processed[_ctx(command).idempotency_key]=part; return part
+            # Inventory valuation is server-authoritative: maintenance cannot
+            # inflate/deflate COGS by supplying an arbitrary client-side cost.
+            c=self._avg_cost(t.branch_id,product_id)
+            part={'id':_ctx(command).command_id,'ticket_id':ticket_id,'product_id':product_id,'quantity':q,'cost':c}; self._put(self.maintenance_parts,part); self._put(self.stock,StockMovement(f'{part["id"]}:stock',t.branch_id,product_id,-q,'MAINTENANCE_USE',ticket_id,None,c)); nt=replace(t,parts_cost=money(t.parts_cost+q*c)); self.maintenance.update(t.id,nt); self._audit(_ctx(command),'USE_MAINTENANCE_PART',ticket_id,{'product_id':product_id,'quantity':str(q),'cost':str(c)}); self._processed[_ctx(command).idempotency_key]=part; return part
 
     def reopen_day(self,command,closing_date):
         with self._lock:
@@ -397,6 +557,8 @@ class ERPCommandEngine:
         with self._lock:
             self._auth(_ctx(command),'closing.close'); old=self._idem(_ctx(command))
             if old:return old
+            if closing_date>date.today():
+                raise DomainError('INVALID_INPUT','لا يمكن إغلاق يوم في المستقبل.',{})
             if self.closings.all() and any(c.branch_id==_ctx(command).branch_id and c.closing_date==closing_date and c.locked for c in self.closings.all()):raise DomainError('INVALID_INPUT','اليوم مغلق بالفعل.',{})
             expected={}
             for w in self.wallets.all():
@@ -508,9 +670,21 @@ class ERPCommandEngine:
             nr=replace(r,paid=a); self.salary_records.update(r.id,nr); self._put(self.ledger,LedgerEntry(f'{r.id}:salary',_ctx(command).branch_id,'salary_expense','SALARY',debit=a,reference_id=r.id)); self._put(self.ledger,LedgerEntry(f'{r.id}:wallet',_ctx(command).branch_id,f'wallet:{wallet_id}','SALARY_PAYMENT',credit=a,reference_id=r.id)); self._audit(_ctx(command),'PAY_SALARY',r.id,{'amount':str(a)}); self._processed[_ctx(command).idempotency_key]=nr; return nr
 
     def reports(self,branch_id,start=None,end=None):
+        def in_range(entry):
+            created=getattr(entry,'created_at',None)
+            day=created.date() if created is not None and hasattr(created,'date') else None
+            return (start is None or day is None or day>=start) and (end is None or day is None or day<=end)
+        def account_total(account_id):
+            total=D0
+            for entry in self.ledger.all():
+                if getattr(entry,'branch_id',None)!=branch_id or getattr(entry,'account_id',None)!=account_id or not in_range(entry):
+                    continue
+                total += dec(getattr(entry,'credit',D0))-dec(getattr(entry,'debit',D0))
+            return money(total)
         sales=[s for s in self.sales.all() if s.branch_id==branch_id and s.status!='VOIDED' and (not start or s.created_at.date()>=start) and (not end or s.created_at.date()<=end)]
-        revenue=sum((s.total for s in sales),D0); cogs=sum((i.quantity*i.cost_snapshot for s in sales for i in s.items),D0)
-        return {'sales_count':len(sales),'revenue':money(revenue),'cogs':money(cogs),'gross_profit':money(revenue-cogs),'wallet_balances':{w.id:money(self._balance(w.id)) for w in self.wallets.all() if w.branch_id==branch_id}}
+        revenue=account_total('sales_revenue')
+        cogs=-account_total('cost_of_goods_sold')
+        return {'sales_count':len(sales),'revenue':revenue,'cogs':cogs,'gross_profit':money(revenue-cogs),'wallet_balances':{w.id:money(self._balance(w.id)) for w in self.wallets.all() if w.branch_id==branch_id}}
 
     def inventory_report(self,branch_id):
         out=[]

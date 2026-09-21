@@ -60,6 +60,13 @@ class ERPCommandEngine:
         return sum((dec(val(e,'debit'))-dec(val(e,'credit')) for e in self.ledger.all() if val(e,'account_id')==f'wallet:{wid}'),D0)
     def _put(self,repo,obj):
         oid=obj.id if hasattr(obj,'id') else obj['id']
+        if repo is self.ledger:
+            debit=dec(getattr(obj,'debit',obj.get('debit',D0) if isinstance(obj,dict) else D0))
+            credit=dec(getattr(obj,'credit',obj.get('credit',D0) if isinstance(obj,dict) else D0))
+            if debit < D0 or credit < D0 or (debit == D0 and credit == D0) or (debit > D0 and credit > D0):
+                raise DomainError('INVALID_LEDGER_ENTRY','القيد يجب أن يحتوي على مدين أو دائن موجب واحد فقط.',{'entry_id':oid})
+            if debit != money(debit) or credit != money(credit):
+                raise DomainError('INVALID_LEDGER_ENTRY','القيد المالي يجب أن يكون بدقة منزلتين عشريتين.',{'entry_id':oid})
         repo.create(oid, obj, tenant_id=getattr(self, "_active_tenant", None))
 
     def create_purchase(self,command,supplier_id,items,paid=D0):

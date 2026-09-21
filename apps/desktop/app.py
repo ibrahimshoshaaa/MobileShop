@@ -39,16 +39,22 @@ from suppliers_tab import SuppliersTab  # noqa: E402
 ONLINE_MODE = os.environ.get("MOBILE_SHOP_ERP_MODE", "offline").strip().lower() == "online"
 
 
-def _inventory_repo_module():
+def _online_repositories():
     if not ONLINE_MODE:
-        import inventory_repo
-        return inventory_repo
+        import sales_repo, inventory_repo, customers_repo
+        return sales_repo, inventory_repo, customers_repo
+
     import api_client
+    import api_sales_repo
     import api_inventory_repo
+    import api_customers_repo
     api_client.DEFAULT_BASE_URL = os.environ.get("MOBILE_SHOP_ERP_API_URL", api_client.DEFAULT_BASE_URL)
     api_client.DEFAULT_TOKEN = os.environ.get("MOBILE_SHOP_ERP_API_TOKEN", api_client.DEFAULT_TOKEN)
-    api_inventory_repo._client = api_client.ApiClient(api_client.DEFAULT_BASE_URL, api_client.DEFAULT_TOKEN)
-    return api_inventory_repo
+    client = api_client.ApiClient(api_client.DEFAULT_BASE_URL, api_client.DEFAULT_TOKEN)
+    api_sales_repo._client = client
+    api_inventory_repo._client = client
+    api_customers_repo._client = client
+    return api_sales_repo, api_inventory_repo, api_customers_repo
 
 
 class DesktopApp:
@@ -60,8 +66,13 @@ class DesktopApp:
         notebook = ttk.Notebook(root)
         notebook.pack(fill="both", expand=True)
 
-        inventory_repo_module = _inventory_repo_module()
-        notebook.add(SalesTab(notebook), text="المبيعات")
+        sales_repo_module, inventory_repo_module, customers_repo_module = _online_repositories()
+        notebook.add(SalesTab(
+            notebook,
+            repo=sales_repo_module,
+            inventory_repo_module=inventory_repo_module,
+            customers_repo_module=customers_repo_module,
+        ), text="المبيعات")
         notebook.add(InventoryTab(notebook, repo=inventory_repo_module), text="المخزون")
         notebook.add(CustomersTab(notebook), text="العملاء")
         notebook.add(SuppliersTab(notebook), text="الموردون")
@@ -71,7 +82,7 @@ class DesktopApp:
 
         if ONLINE_MODE:
             api_url = os.environ.get("MOBILE_SHOP_ERP_API_URL", "http://localhost:8000")
-            status_text = f"الوضع: متصل بالسيرفر (المخزون فقط) — {api_url}"
+            status_text = f"الوضع: متصل بالسيرفر (المخزون + المبيعات) — {api_url}"
             try:
                 inventory_repo_module.list_products()
             except Exception as e:

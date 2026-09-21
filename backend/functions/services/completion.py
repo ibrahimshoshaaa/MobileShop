@@ -27,7 +27,33 @@ def install_completion(engine_cls):
             if old:return old
             p=self.products.get(product_id)
             if not p: raise DomainError('NOT_FOUND','المنتج غير موجود.',{})
-            np=replace(p,**changes); self.products.update(product_id,np); self._audit(ctx,'CHANGE_PRODUCT',product_id,{'changes':changes}); self._processed[ctx.idempotency_key]=np; return np
+            allowed_fields={'name','sku','product_type','barcode','selling_price','default_cost','warranty_days','reorder_level','active'}
+            unknown=set(changes)-allowed_fields
+            if unknown:
+                raise DomainError('INVALID_INPUT','حقول المنتج غير مسموح بتعديلها.',{'fields':sorted(unknown)})
+            if 'name' in changes and not str(changes['name']).strip():
+                raise DomainError('INVALID_INPUT','اسم المنتج مطلوب.',{})
+            if 'sku' in changes and not str(changes['sku']).strip():
+                raise DomainError('INVALID_INPUT','SKU مطلوب.',{})
+            if 'selling_price' in changes and M(changes['selling_price'])<0:
+                raise DomainError('INVALID_INPUT','سعر البيع لا يمكن أن يكون سالباً.',{})
+            if 'default_cost' in changes and M(changes['default_cost'])<0:
+                raise DomainError('INVALID_INPUT','التكلفة لا يمكن أن تكون سالبة.',{})
+            if 'reorder_level' in changes and M(changes['reorder_level'])<0:
+                raise DomainError('INVALID_INPUT','حد إعادة الطلب لا يمكن أن يكون سالباً.',{})
+            if 'warranty_days' in changes and int(changes['warranty_days'])<0:
+                raise DomainError('INVALID_INPUT','مدة الضمان لا يمكن أن تكون سالبة.',{})
+            for other in self.products.all():
+                if other.id==product_id: continue
+                if 'sku' in changes and other.sku==changes['sku']:
+                    raise DomainError('DUPLICATE_PRODUCT','SKU مستخدم بالفعل.',{})
+                if 'barcode' in changes and changes['barcode'] and other.barcode==changes['barcode']:
+                    raise DomainError('DUPLICATE_PRODUCT','Barcode مستخدم بالفعل.',{})
+            typed=dict(changes)
+            for field in ('selling_price','default_cost','reorder_level'):
+                if field in typed: typed[field]=M(typed[field])
+            if 'warranty_days' in typed: typed['warranty_days']=int(typed['warranty_days'])
+            np=replace(p,**typed); self.products.update(product_id,np); self._audit(ctx,'CHANGE_PRODUCT',product_id,{'changes':typed}); self._processed[ctx.idempotency_key]=np; return np
     def create_branch(self, command, branch):
         ctx=command.context if hasattr(command,'context') else command
         with self._lock:
@@ -91,6 +117,38 @@ def install_completion(engine_cls):
             self._auth(ctx,'suppliers.edit'); old=self._idem(ctx)
             if old:return old
             self._put(self.suppliers,supplier); self._audit(ctx,'CREATE_SUPPLIER',supplier.id); self._processed[ctx.idempotency_key]=supplier; return supplier
+    def update_customer(self, command, customer_id, **changes):
+        ctx=command.context if hasattr(command,'context') else command
+        with self._lock:
+            self._auth(ctx,'customers.edit'); old=self._idem(ctx)
+            if old:return old
+            customer=self.customers.get(customer_id)
+            if not customer: raise DomainError('NOT_FOUND','العميل غير موجود.',{'customer_id':customer_id})
+            if 'name' in changes and not str(changes['name']).strip():
+                raise DomainError('INVALID_INPUT','اسم العميل مطلوب.',{})
+            allowed={k:v for k,v in changes.items() if k in {'name','phone','active'}}
+            updated=replace(customer,**allowed)
+            self.customers.update(customer_id,updated)
+            self._audit(ctx,'UPDATE_CUSTOMER',customer_id,{'changes':allowed})
+            self._processed[ctx.idempotency_key]=updated
+            return updated
+    def update_supplier(self, command, supplier_id, **changes):
+        ctx=command.context if hasattr(command,'context') else command
+        with self._lock:
+            self._auth(ctx,'suppliers.edit'); old=self._idem(ctx)
+            if old:return old
+            supplier=self.suppliers.get(supplier_id)
+            if not supplier: raise DomainError('NOT_FOUND','المورد غير موجود.',{'supplier_id':supplier_id})
+            if supplier.branch_ids and ctx.branch_id not in supplier.branch_ids:
+                raise DomainError('BRANCH_ACCESS_DENIED','المورد غير متاح لهذا الفرع.',{})
+            if 'name' in changes and not str(changes['name']).strip():
+                raise DomainError('INVALID_INPUT','اسم المورد مطلوب.',{})
+            allowed={k:v for k,v in changes.items() if k in {'name','phone','active'}}
+            updated=replace(supplier,**allowed)
+            self.suppliers.update(supplier_id,updated)
+            self._audit(ctx,'UPDATE_SUPPLIER',supplier_id,{'changes':allowed})
+            self._processed[ctx.idempotency_key]=updated
+            return updated
     def create_wallet(self, command, wallet):
         ctx=command.context if hasattr(command,'context') else command
         with self._lock:
@@ -208,7 +266,7 @@ def install_completion(engine_cls):
         customers={c.id:self.customer_balance(c.id,branch_id) for c in self.customers.all()}
         suppliers={s.id:self.supplier_balance(s.id,branch_id) for s in self.suppliers.all()}
         return {**base,'maintenance_revenue':M(maintenance_revenue),'maintenance_cost':M(maintenance_cost),'maintenance_profit':M(maintenance_revenue-maintenance_cost),'transfer_commission':M(transfer_rev),'expenses':M(expenses),'net_profit':M(base['gross_profit']+maintenance_revenue-maintenance_cost+transfer_rev-expenses),'customer_receivables':customers,'supplier_payables':suppliers,'overdue_installments':sum(1 for p in getattr(self,'installments',[]).all() if self.installment_status(p.id) and any(x['status']=='OVERDUE' for x in self.installment_status(p.id)))}
-    engine_cls.create_product=create_product; engine_cls.update_product=update_product; engine_cls.create_customer=create_customer; engine_cls.create_supplier=create_supplier; engine_cls.create_wallet=create_wallet
+    engine_cls.create_product=create_product; engine_cls.update_product=update_product; engine_cls.create_customer=create_customer; engine_cls.create_supplier=create_supplier; engine_cls.update_customer=update_customer; engine_cls.update_supplier=update_supplier; engine_cls.create_wallet=create_wallet
     engine_cls.customer_balance=customer_balance; engine_cls.supplier_balance=supplier_balance; engine_cls.customer_statement=customer_statement; engine_cls.supplier_statement=supplier_statement
     engine_cls.create_installment_schedule=create_installment_schedule; engine_cls.installment_status=installment_status; engine_cls.exchange_sale=exchange_sale; engine_cls.warranty_check=warranty_check; engine_cls.deliver_maintenance=deliver_maintenance; engine_cls.reports_full=reports_full
     def create_purchase_complete(self,command,supplier_id,items,paid=D0):
@@ -355,20 +413,22 @@ def install_completion(engine_cls):
             if commission is not None and not ({'transfer.override_commission','transfer.create'} & set(ctx.permissions)):
                 raise DomainError('FORBIDDEN','لا توجد صلاحية لتعديل عمولة التحويل.',{})
 
-            # Customer transfer semantics from the specification:
+            # Customer transfer semantics:
             # cash -> digital: cash increases by principal+commission; digital decreases principal.
-            # digital -> cash: digital increases principal; cash decreases principal; commission is revenue.
+            # digital -> cash: digital increases principal; cash decreases principal+commission.
+            # The commission is recognized as revenue so every transaction balances.
             src_type=str(src.wallet_type).upper(); dst_type=str(dst.wallet_type).upper()
             cash_types={'CASH'}
             if src_type in cash_types and dst_type not in cash_types:
                 if self._balance(destination_wallet)<a: raise DomainError('INSUFFICIENT_WALLET_BALANCE','الرصيد الرقمي غير كافٍ.',{})
-                self._put(self.ledger,LedgerEntry(f'{ctx.command_id}:cash-in',ctx.branch_id,f'wallet:{source_wallet}','CUSTOMER_TRANSFER_IN',debit=a+actual,reference_id=ctx.command_id))
-                self._put(self.ledger,LedgerEntry(f'{ctx.command_id}:digital-out',ctx.branch_id,f'wallet:{destination_wallet}','CUSTOMER_TRANSFER_OUT',credit=a,reference_id=ctx.command_id))
+                self._put(self.ledger,LedgerEntry(f'{ctx.command_id}:source',ctx.branch_id,f'wallet:{source_wallet}','CUSTOMER_TRANSFER_IN',debit=a+actual,reference_id=ctx.command_id))
+                self._put(self.ledger,LedgerEntry(f'{ctx.command_id}:destination',ctx.branch_id,f'wallet:{destination_wallet}','CUSTOMER_TRANSFER_OUT',credit=a,reference_id=ctx.command_id))
             elif src_type not in cash_types and dst_type in cash_types:
-                if self._balance(source_wallet)<a+actual: raise DomainError('INSUFFICIENT_WALLET_BALANCE','الرصيد الرقمي غير كافٍ.',{})
-                if self._balance(destination_wallet)<a: raise DomainError('INSUFFICIENT_WALLET_BALANCE','الرصيد النقدي غير كافٍ.',{})
-                self._put(self.ledger,LedgerEntry(f'{ctx.command_id}:digital-in',ctx.branch_id,f'wallet:{source_wallet}','CUSTOMER_TRANSFER_IN',debit=a+actual,reference_id=ctx.command_id))
-                self._put(self.ledger,LedgerEntry(f'{ctx.command_id}:cash-out',ctx.branch_id,f'wallet:{destination_wallet}','CUSTOMER_TRANSFER_OUT',credit=a,reference_id=ctx.command_id))
+                if self._balance(source_wallet)<a: raise DomainError('INSUFFICIENT_WALLET_BALANCE','الرصيد الرقمي غير كافٍ.',{})
+                self._put(self.ledger,LedgerEntry(f'{ctx.command_id}:source',ctx.branch_id,f'wallet:{source_wallet}','CUSTOMER_TRANSFER_IN',debit=a,reference_id=ctx.command_id))
+                self._put(self.ledger,LedgerEntry(f'{ctx.command_id}:destination',ctx.branch_id,f'wallet:{destination_wallet}','CUSTOMER_TRANSFER_OUT',credit=a+actual,reference_id=ctx.command_id))
+            else:
+                raise DomainError('INVALID_INPUT','تحويل العميل يجب أن يكون بين محفظة نقدية ومحفظة رقمية.',{})
             else:
                 raise DomainError('INVALID_INPUT','تحويل العميل يجب أن يكون بين محفظة نقدية ومحفظة رقمية.',{})
             if actual:
@@ -404,7 +464,7 @@ def install_completion(engine_cls):
     _atomic_names = (
         'create_purchase','create_sale','void_sale','return_sale','create_expense',
         'adjust_wallet','transfer_between_wallets','create_installment_plan',
-        'collect_installment','pay_supplier','collect_customer','transfer_customer',
+        'collect_installment','pay_supplier','collect_customer','transfer_customer','exchange_sale',
         'deliver_maintenance','use_maintenance_part','adjust_stock','transfer_stock',
         'calculate_salary','pay_salary','close_day','reopen_day'
     )

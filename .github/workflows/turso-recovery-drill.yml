@@ -28,7 +28,6 @@ jobs:
       - name: Restore source to a disposable point-in-time database
         env:
           TURSO_API_TOKEN: ${{ secrets.TURSO_API_TOKEN }}
-          TURSO_ORG: ibrahimshoshaaa
           TURSO_SOURCE_DB: mobile-shop-staging
         run: |
           set -euo pipefail
@@ -37,10 +36,10 @@ jobs:
           timestamp="$(date -u -d '2 minutes ago' '+%Y-%m-%dT%H:%M:%SZ')"
           target="mobile-shop-recovery-${GITHUB_RUN_ID}"
           cleanup() {
-            turso db destroy "$target" --org "$TURSO_ORG" --yes >/dev/null 2>&1 || true
+            turso db destroy "$target" --yes >/dev/null 2>&1 || true
           }
           trap cleanup EXIT
           export TURSO_API_TOKEN
-          turso db create "$target" --org "$TURSO_ORG" --from-db "$TURSO_SOURCE_DB" --timestamp "$timestamp"
+          turso db create "$target" --from-db "$TURSO_SOURCE_DB" --timestamp "$timestamp" --wait
           turso db shell "$target" "PRAGMA integrity_check;" | grep -q "ok"
           echo "TURSO_PITR_RECOVERY_OK"

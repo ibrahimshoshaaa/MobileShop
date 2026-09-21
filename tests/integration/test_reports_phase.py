@@ -6,7 +6,7 @@ from shared.models.erp import Product, Wallet
 
 
 def ctx(cid, branch):
-    return CommandContext(cid, "u", branch, frozenset({"sales.create", "inventory.read"}), "tenant-a")
+    return CommandContext(cid, "u", branch, frozenset({"sales.create", "inventory.read", "stock.adjust"}), "tenant-a")
 
 
 def test_reports_full_uses_branch_scoped_sales_and_cogs():

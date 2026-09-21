@@ -42,3 +42,30 @@ def test_concurrent_sync_upload_is_idempotent(tmp_path):
     assert calls == ["same"]
     assert all(r["results"][0]["status"] in {"APPLIED"} for r in results)
     sync.close()
+
+
+def test_concurrent_uploads_across_two_sync_workers_execute_once(tmp_path):
+    db = tmp_path / "shared-sync.db"
+    left = SyncProtocol(db)
+    right = SyncProtocol(db)
+    calls = []
+    lock = threading.Lock()
+
+    def execute(envelope):
+        with lock:
+            calls.append(envelope["command_id"])
+        return {"ok": True}
+
+    envelope = {"command_id": "cross-worker", "tenant_id": "t1", "branch_id": "b1", "payload": {"x": 1}}
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        results = list(pool.map(
+            lambda sync: sync.upload([envelope], tenant_id="t1", branch_id="b1", executor=execute),
+            [left, right],
+        ))
+
+    assert calls == ["cross-worker"]
+    statuses = {r["results"][0]["status"] for r in results}
+    assert statuses == {"APPLIED", "PROCESSING"}
+    left.close()
+    right.close()

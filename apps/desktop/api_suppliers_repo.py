@@ -24,7 +24,7 @@ def list_suppliers(query: str = ""):
 
 def add_supplier(*, name: str, phone: str | None):
     if not name.strip(): raise AppError("اسم المورد مطلوب.")
-    return _to_supplier(_client.command(f"cmd-create-supplier-{uuid.uuid4().hex[:12]}","createSupplier",{"name":name.strip(),"phone":phone.strip() if phone and phone.strip() else None}))
+    return _to_supplier(_client.command(f"cmd-create-supplier-{uuid.uuid4().hex[:12]}","createSupplier",{"name":name.strip(),"phone":phone.strip() if phone and phone.strip() else None,"branch_ids":[_client.branch_id]}))
 
 def update_supplier(supplier: Supplier):
     raise AppError("تعديل المورد Online غير متاح حتى الآن؛ استخدم وضع Offline لهذه العملية.")

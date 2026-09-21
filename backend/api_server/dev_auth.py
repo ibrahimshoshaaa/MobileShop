@@ -18,8 +18,8 @@ _DEV_TOKENS = {
         "tenant_id": "dev-tenant",
         "branch_ids": ("LOCAL_BRANCH",),
         "permissions": (
-            "sales.create", "sales.void", "sales.return", "sales.discount",
-            "products.edit", "customers.edit", "customers.collect", "suppliers.edit", "wallets.edit",
+            "sales.create", "sales.read", "sales.void", "sales.return", "sales.discount",
+            "inventory.read", "customers.read", "wallets.read", "products.edit", "customers.edit", "customers.collect", "suppliers.edit", "wallets.edit",
             "purchases.create", "purchases.pay_supplier", "expenses.create",
             "stock.adjust", "stock.transfer", "wallet.adjust", "wallet.transfer",
             "transfer.create", "transfer.override_commission",
@@ -33,7 +33,7 @@ _DEV_TOKENS = {
         "uid": "dev-cashier",
         "tenant_id": "dev-tenant",
         "branch_ids": ("LOCAL_BRANCH",),
-        "permissions": ("sales.create", "customers.edit", "installments.collect"),
+        "permissions": ("sales.create", "sales.read", "inventory.read", "customers.read", "wallets.read", "customers.edit", "installments.collect"),
     },
 }
 

@@ -279,6 +279,19 @@ def test_installment_collection_cannot_overdraw_wallet():
         )
     assert exc.value.code == "INSUFFICIENT_WALLET_BALANCE"
 
+def test_wallet_transfer_commission_is_paid_by_source_and_ledger_balances():
+    e = seed()
+    e.ledger.create("digital-opening-transfer", LedgerEntry(
+        "digital-opening-transfer", "b1", "wallet:digital", "OPENING", debit=Decimal("1000")
+    ))
+    e.transfer_between_wallets(
+        ctx("wallet-transfer", {"wallet.transfer"}), "cash", "digital", Decimal("100")
+    )
+    assert e._balance("cash") == Decimal("4899.00")
+    assert e._balance("digital") == Decimal("1100.00")
+    assert e.ledger_transaction_totals("wallet-transfer") == (Decimal("101.00"), Decimal("101.00"))
+
+
 def test_customer_transfer_moves_value_in_correct_direction_and_balances():
     e = seed()
     e.ledger.create("digital-opening", LedgerEntry(

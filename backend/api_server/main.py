@@ -214,6 +214,31 @@ def list_sales_endpoint(request: Request, branch_id: str = "LOCAL_BRANCH", limit
         reset_tenant_scope(token)
 
 
+@app.get("/reports")
+def reports_endpoint(request: Request, branch_id: str = "LOCAL_BRANCH", start: str | None = None, end: str | None = None):
+    claims = verify_token(request)
+    if not claims:
+        return JSONResponse({"ok": False, "error": {"code": "UNAUTHORIZED", "message": "التوثيق مطلوب.", "details": {}}}, status_code=401)
+    tenant_id = claims.get("tenant_id")
+    if not tenant_id:
+        return JSONResponse({"ok": False, "error": {"code": "TENANT_REQUIRED", "message": "هوية المستأجر مطلوبة.", "details": {}}}, status_code=401)
+    if branch_id not in claims.get("branch_ids", ()):
+        return JSONResponse({"ok": False, "error": {"code": "BRANCH_ACCESS_DENIED", "message": "لا توجد صلاحية وصول لهذا الفرع.", "details": {}}}, status_code=403)
+    if "reports.read" not in claims.get("permissions", ()):
+        return JSONResponse({"ok": False, "error": {"code": "FORBIDDEN", "message": "لا توجد صلاحية لقراءة التقارير.", "details": {"permission": "reports.read"}}}, status_code=403)
+    try:
+        from datetime import date
+        start_date = date.fromisoformat(start) if start else None
+        end_date = date.fromisoformat(end) if end else None
+    except ValueError:
+        return JSONResponse({"ok": False, "error": {"code": "INVALID_INPUT", "message": "صيغة التاريخ يجب أن تكون YYYY-MM-DD.", "details": {}}}, status_code=400)
+    token = set_tenant_scope(str(tenant_id))
+    try:
+        return JSONResponse({"ok": True, "data": _json_safe(engine.reports_full(branch_id, start_date, end_date))})
+    finally:
+        reset_tenant_scope(token)
+
+
 @app.get("/query/{entity}")
 def query_endpoint(request: Request, entity: str, branch_id: str = "LOCAL_BRANCH",
                    limit: int = 100):

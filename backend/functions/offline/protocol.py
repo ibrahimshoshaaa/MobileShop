@@ -120,7 +120,12 @@ class SyncProtocol:
                     (tenant_id, branch_id, command_id, "PROCESSING", request_hash, time.time()),
                 )
                 self.db.commit()
-            except sqlite3.IntegrityError:
+            except Exception as exc:
+                # SQLite raises IntegrityError; Turso/libSQL Hrana surfaces
+                # UNIQUE constraint conflicts as ValueError. Treat both as
+                # the same cross-worker idempotency race.
+                if not isinstance(exc, sqlite3.IntegrityError) and "UNIQUE constraint failed" not in str(exc):
+                    raise
                 row = self.db.execute(
                     "SELECT status,result_json,error_code,request_hash,claimed_at FROM sync_receipts WHERE tenant_id=? AND branch_id=? AND command_id=?",
                     (tenant_id, branch_id, command_id),

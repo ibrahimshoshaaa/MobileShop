@@ -41,7 +41,7 @@ ONLINE_MODE = os.environ.get("MOBILE_SHOP_ERP_MODE", "offline").strip().lower() 
 def _online_repositories():
     if not ONLINE_MODE:
         import sales_repo, inventory_repo, customers_repo
-        import suppliers_repo, expenses_repo, installments_repo, maintenance_repo, access_repo
+        import suppliers_repo, expenses_repo, installments_repo, maintenance_repo
         return (sales_repo, inventory_repo, customers_repo, suppliers_repo, expenses_repo, installments_repo, maintenance_repo)
 
     import api_client
@@ -90,8 +90,9 @@ class DesktopApp:
         notebook.add(InstallmentsTab(notebook, repo=installments_repo_module, customers_repo_module=customers_repo_module), text="الأقساط")
         notebook.add(MaintenanceTab(notebook, repo=maintenance_repo_module, customers_repo_module=customers_repo_module, inventory_repo_module=inventory_repo_module), text="الصيانة")
         notebook.add(ExpensesTab(notebook, repo=expenses_repo_module), text="المصروفات")
-        access_repo_module = __import__('api_access_repo' if ONLINE_MODE else 'access_repo')
-        notebook.add(AccessTab(notebook, repo=access_repo_module), text="الفروع والصلاحيات")
+        if ONLINE_MODE:
+            import api_access_repo
+            notebook.add(AccessTab(notebook, repo=api_access_repo), text="الفروع والصلاحيات")
 
         if ONLINE_MODE:
             api_url = os.environ.get("MOBILE_SHOP_ERP_API_URL", "http://localhost:8000")

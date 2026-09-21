@@ -94,10 +94,13 @@ class ERPCommandEngine:
                 if q<=0 or cost<0: raise DomainError('INVALID_INPUT','الكمية والتكلفة غير صحيحتين.',{})
                 uid=i.get('product_unit_id')
                 if uid:
+                    if q != D1: raise DomainError('INVALID_INPUT','شراء وحدة IMEI يجب أن يكون بكمية 1.',{})
                     u=self.units.get(uid)
                     if not u: raise DomainError('NOT_FOUND','وحدة المنتج غير موجودة.',{})
                     if u.branch_id!=_ctx(command).branch_id: raise DomainError('BRANCH_ACCESS_DENIED','الوحدة خارج الفرع.',{})
+                    if u.product_id!=i['product_id']: raise DomainError('INVALID_INPUT','وحدة المنتج لا تطابق المنتج المحدد.',{})
                     if u.status=='SOLD': raise DomainError('INVALID_INPUT','الوحدة مباعة بالفعل.',{})
+                    if u.status!='AVAILABLE': raise DomainError('INVALID_INPUT','الوحدة غير متاحة للشراء.',{})
                     unit_updates.append((u,i,cost))
                 elif not self.products.get(i['product_id']): raise DomainError('NOT_FOUND','المنتج غير موجود.',{})
                 pis.append(PurchaseItem(f'{_ctx(command).command_id}:{n}',i['product_id'],q,cost,uid))
@@ -140,9 +143,11 @@ class ERPCommandEngine:
                 if q<=0 or price<0: raise DomainError('INVALID_INPUT','الكمية والسعر غير صحيحين.',{})
                 uid=r.get('product_unit_id'); cost=D0
                 if uid:
+                    if q != D1: raise DomainError('INVALID_INPUT','بيع وحدة IMEI يجب أن يكون بكمية 1.',{})
                     u=self.units.get(uid)
                     if not u: raise DomainError('NOT_FOUND','وحدة المنتج غير موجودة.',{})
                     if u.branch_id!=_ctx(command).branch_id: raise DomainError('BRANCH_ACCESS_DENIED','الوحدة خارج الفرع.',{})
+                    if u.product_id!=r['product_id']: raise DomainError('INVALID_INPUT','وحدة المنتج لا تطابق المنتج المحدد.',{})
                     if u.status=='SOLD': raise DomainError('IMEI_ALREADY_SOLD','هذا الـIMEI تم بيعه بالفعل.',{})
                     if u.status!='AVAILABLE': raise DomainError('INVALID_INPUT','الوحدة غير متاحة للبيع.',{})
                     cost=u.final_cost

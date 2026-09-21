@@ -3,14 +3,19 @@ import tkinter as tk
 from tkinter import messagebox, ttk
 
 import sales_repo
+import inventory_repo
+import customers_repo
 from customers_tab import CustomerPickerWindow
 from errors import AppError
 from inventory_tab import ProductPickerWindow
 
 
 class SalesTab(ttk.Frame):
-    def __init__(self, master):
+    def __init__(self, master, repo=sales_repo, inventory_repo_module=inventory_repo, customers_repo_module=customers_repo):
         super().__init__(master)
+        self.repo = repo
+        self.inventory_repo = inventory_repo_module
+        self.customers_repo = customers_repo_module
         self._build()
         self.reload()
 
@@ -34,7 +39,7 @@ class SalesTab(ttk.Frame):
 
     def reload(self):
         self.tree.delete(*self.tree.get_children())
-        self._sales = {s.id: s for s in sales_repo.list_recent_sales()}
+        self._sales = {s.id: s for s in self.repo.list_recent_sales()}
         for s in self._sales.values():
             tags = ("voided",) if s.status == "VOIDED" else ()
             self.tree.insert(
@@ -45,7 +50,7 @@ class SalesTab(ttk.Frame):
             )
 
     def _new_sale(self):
-        window = NewSaleWindow(self)
+        window = NewSaleWindow(self, repo=self.repo, inventory_repo_module=self.inventory_repo, customers_repo_module=self.customers_repo)
         self.wait_window(window)
         self.reload()
 
@@ -61,13 +66,16 @@ class SalesTab(ttk.Frame):
 
 
 class NewSaleWindow(tk.Toplevel):
-    def __init__(self, master):
+    def __init__(self, master, repo=sales_repo, inventory_repo_module=inventory_repo, customers_repo_module=customers_repo):
         super().__init__(master)
+        self.repo = repo
+        self.inventory_repo = inventory_repo_module
+        self.customers_repo = customers_repo_module
         self.title("فاتورة بيع جديدة")
         self.geometry("640x680")
         self.customer = None
-        self.cart = []  # list of sales_repo.SaleItem
-        self.payments = []  # list of sales_repo.Payment
+        self.cart = []  # list of self.repo.SaleItem
+        self.payments = []  # list of self.repo.Payment
         self._build()
         self.grab_set()
 
@@ -125,13 +133,13 @@ class NewSaleWindow(tk.Toplevel):
         self._refresh_summary()
 
     def _pick_customer(self):
-        picker = CustomerPickerWindow(self)
+        picker = CustomerPickerWindow(self, repo=self.customers_repo)
         self.wait_window(picker)
         self.customer = picker.selected_customer
         self.customer_label.config(text=self.customer.name if self.customer else "بدون عميل (عميل نقدي)")
 
     def _add_product(self):
-        picker = ProductPickerWindow(self)
+        picker = ProductPickerWindow(self, repo=self.inventory_repo)
         self.wait_window(picker)
         product = picker.selected_product
         if not product:
@@ -214,12 +222,12 @@ class NewSaleWindow(tk.Toplevel):
     def _refresh_payments(self):
         self.payments_tree.delete(*self.payments_tree.get_children())
         for i, p in enumerate(self.payments):
-            self.payments_tree.insert("", "end", iid=str(i), values=(sales_repo.PAYMENT_METHOD_LABELS[p.method], f"{p.amount:.2f}"))
+            self.payments_tree.insert("", "end", iid=str(i), values=(self.repo.PAYMENT_METHOD_LABELS[p.method], f"{p.amount:.2f}"))
         self._refresh_summary()
 
     def _submit(self):
         try:
-            sales_repo.create_sale(
+            self.repo.create_sale(
                 items=self.cart, payments=self.payments,
                 customer_id=self.customer.id if self.customer else None,
                 customer_name=self.customer.name if self.customer else None,
@@ -244,7 +252,7 @@ class PaymentEntryDialog(tk.Toplevel):
     def _build(self, default_amount):
         pad = {"padx": 12, "pady": 6}
         ttk.Label(self, text="طريقة الدفع").pack(anchor="e", **pad)
-        self.method_var = tk.StringVar(value=sales_repo.PAYMENT_METHODS[0][1])
+        self.method_var = tk.StringVar(value=self.repo.PAYMENT_METHODS[0][1])
         ttk.Combobox(self, textvariable=self.method_var, values=[label for _, label in sales_repo.PAYMENT_METHODS], state="readonly").pack(fill="x", **pad)
 
         ttk.Label(self, text="المبلغ").pack(anchor="e", **pad)
@@ -307,7 +315,7 @@ class SaleDetailWindow(tk.Toplevel):
         if not messagebox.askyesno("تأكيد", "هل تريد إلغاء هذه الفاتورة؟ سيتم إرجاع الكميات للمخزون."):
             return
         try:
-            sales_repo.void_sale(self.sale.id)
+            self.repo.void_sale(self.sale.id)
         except AppError as e:
             self.error_label.config(text=e.message)
             return

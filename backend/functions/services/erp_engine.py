@@ -23,7 +23,7 @@ class ERPCommandEngine:
         self.products=Repository(); self.units=Repository(); self.sales=Repository(); self.purchases=Repository()
         self.wallets=Repository(); self.ledger=Repository(); self.stock=Repository(); self.expenses=Repository(); self.audit=Repository()
         self.customers=Repository(); self.suppliers=Repository(); self.installments=Repository(); self.installment_payments=Repository()
-        self.maintenance=Repository(); self.maintenance_parts=Repository(); self.employees=Repository(); self.salary_records=Repository(); self.closings=Repository()
+        self.maintenance=Repository(); self.maintenance_parts=Repository(); self.branches=Repository(); self.users=Repository(); self.roles=Repository(); self.employees=Repository(); self.salary_records=Repository(); self.closings=Repository()
         self.transfers=Repository(); self.returns=Repository(); self.settings=Repository(); self.catalog=Repository(); self._processed={}; self._lock=RLock()
 
     def _auth(self,ctx,perm):

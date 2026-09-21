@@ -3,7 +3,7 @@ name: Turso Deep Integration
 on:
   workflow_dispatch:
   push:
-    branches: ["main", "release/complete-release-gates", "release/production-gates-audit", "fix/ci-staging-smoke-trigger"]
+    branches: ["main", "release/complete-release-gates", "release/production-gates-audit"]
 
 permissions:
   contents: read
@@ -107,5 +107,4 @@ jobs:
               print("sync_cursor=PASS")
           finally:
               sync.close()
-              pass
           PY

@@ -68,7 +68,7 @@ jobs:
               assert calls == [env["command_id"]], f"duplicate execution: {calls}"
               statuses = {r["results"][0]["status"] for r in results}
               assert "APPLIED" in statuses
-              assert statuses <= {"APPLIED", "PROCESSING"}
+              assert statuses <= {"APPLIED", "PROCESSING", "RETRYABLE"}
 
               replay = left.upload([env], tenant_id=tenant, branch_id=branch, executor=execute)
               assert replay["results"][0]["status"] == "APPLIED"

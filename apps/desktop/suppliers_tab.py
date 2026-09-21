@@ -7,8 +7,9 @@ from errors import AppError
 
 
 class SuppliersTab(ttk.Frame):
-    def __init__(self, master):
+    def __init__(self, master, repo=suppliers_repo):
         super().__init__(master)
+        self.repo = repo
         self._build()
         self.reload()
 
@@ -33,7 +34,7 @@ class SuppliersTab(ttk.Frame):
 
     def reload(self):
         self.tree.delete(*self.tree.get_children())
-        for s in suppliers_repo.list_suppliers(query=self.search_var.get()):
+        for s in self.repo.list_suppliers(query=self.search_var.get()):
             self.tree.insert("", "end", iid=s.id, values=(s.name, s.phone or "-", "مفعّل" if s.active else "معطّل"))
 
     def _selected_supplier(self):
@@ -41,23 +42,24 @@ class SuppliersTab(ttk.Frame):
         if not selection:
             messagebox.showinfo("تنبيه", "اختر موردًا أولًا.")
             return None
-        suppliers = {s.id: s for s in suppliers_repo.list_suppliers()}
+        suppliers = {s.id: s for s in self.repo.list_suppliers()}
         return suppliers.get(selection[0])
 
     def _add(self):
-        SupplierFormWindow(self, on_saved=self.reload)
+        SupplierFormWindow(self, on_saved=self.reload, repo=self.repo)
 
     def _edit_selected(self):
         supplier = self._selected_supplier()
         if supplier:
-            SupplierFormWindow(self, existing=supplier, on_saved=self.reload)
+            SupplierFormWindow(self, existing=supplier, on_saved=self.reload, repo=self.repo)
 
 
 class SupplierFormWindow(tk.Toplevel):
-    def __init__(self, master, existing=None, on_saved=None):
+    def __init__(self, master, existing=None, on_saved=None, repo=suppliers_repo):
         super().__init__(master)
         self.existing = existing
         self.on_saved = on_saved
+        self.repo = repo
         self.title("تعديل مورد" if existing else "إضافة مورد جديد")
         self.geometry("340x300")
         self.resizable(False, False)
@@ -85,13 +87,13 @@ class SupplierFormWindow(tk.Toplevel):
     def _submit(self):
         try:
             if self.existing:
-                updated = suppliers_repo.Supplier(
+                updated = self.repo.Supplier(
                     id=self.existing.id, name=self.name_var.get().strip(),
                     phone=self.phone_var.get().strip() or None, active=self.active_var.get(),
                 )
-                suppliers_repo.update_supplier(updated)
+                self.repo.update_supplier(updated)
             else:
-                suppliers_repo.add_supplier(name=self.name_var.get(), phone=self.phone_var.get())
+                self.repo.add_supplier(name=self.name_var.get(), phone=self.phone_var.get())
         except AppError as e:
             self.error_label.config(text=e.message)
             return

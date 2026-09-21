@@ -138,6 +138,9 @@ class ERPCommandEngine:
             # are separate balanced legs of the same transaction.
             self._put(self.ledger,LedgerEntry(f'{s.id}:revenue',s.branch_id,'sales_revenue','SALE',credit=total,reference_id=s.id))
             for p in pays:self._put(self.ledger,LedgerEntry(p.id,s.branch_id,f'wallet:{p.wallet_id}','SALE_PAYMENT',debit=p.amount,reference_id=s.id))
+            receivable=money(total-sum((p.amount for p in pays),D0))
+            if receivable and s.customer_id:
+                self._put(self.ledger,LedgerEntry(f'{s.id}:customer',s.branch_id,f'customer:{s.customer_id}','SALE_CREDIT',debit=receivable,reference_id=s.id))
             if cost_total:
                 self._put(self.ledger,LedgerEntry(f'{s.id}:cogs',s.branch_id,'cost_of_goods_sold','SALE',debit=cost_total,reference_id=s.id))
                 self._put(self.ledger,LedgerEntry(f'{s.id}:inventory',s.branch_id,'inventory','SALE',credit=cost_total,reference_id=s.id))
@@ -255,6 +258,9 @@ class ERPCommandEngine:
             q=dec(quantity)
             if q<=0:raise DomainError('INVALID_INPUT','الكمية يجب أن تكون موجبة.',{})
             if from_branch!=_ctx(command).branch_id:raise DomainError('BRANCH_ACCESS_DENIED','الفرع المصدر غير مصرح.',{})
+            if from_branch==to_branch:raise DomainError('INVALID_INPUT','لا يمكن تحويل المخزون إلى نفس الفرع.',{})
+            if not self.products.get(product_id):raise DomainError('NOT_FOUND','المنتج غير موجود.',{'product_id':product_id})
+            if not str(to_branch).strip():raise DomainError('INVALID_INPUT','الفرع المستلم غير صحيح.',{})
             if self._available_qty(from_branch,product_id)<q:raise DomainError('INSUFFICIENT_STOCK','المخزون غير كافٍ.',{})
             tid=_ctx(command).command_id; self._put(self.stock,StockMovement(f'{tid}:out',from_branch,product_id,-q,'TRANSFER_OUT',tid,None,dec(cost))); self._put(self.stock,StockMovement(f'{tid}:in',to_branch,product_id,q,'TRANSFER_IN',tid,None,dec(cost)))
             self._audit(_ctx(command),'TRANSFER_STOCK',tid,{'from':from_branch,'to':to_branch,'quantity':str(q)}); self._processed[_ctx(command).idempotency_key]=tid; return tid
@@ -268,9 +274,12 @@ class ERPCommandEngine:
             comm=money(a*Decimal('0.01'))
             if self._balance(source)<a+comm:raise DomainError('INSUFFICIENT_WALLET_BALANCE','رصيد المحفظة المصدر غير كافٍ.',{})
             tid=_ctx(command).command_id
+            # Internal wallet transfers are asset reclassifications. The 1% fee
+            # reduces the source wallet and is booked as an expense so the journal
+            # remains genuinely double-entry balanced.
             self._put(self.ledger,LedgerEntry(f'{tid}:out',_ctx(command).branch_id,f'wallet:{source}','WALLET_TRANSFER',credit=a+comm,reference_id=tid))
             self._put(self.ledger,LedgerEntry(f'{tid}:in',_ctx(command).branch_id,f'wallet:{destination}','WALLET_TRANSFER',debit=a,reference_id=tid))
-            self._put(self.ledger,LedgerEntry(f'{tid}:commission',_ctx(command).branch_id,'transfer_commission','TRANSFER_COMMISSION',credit=comm,reference_id=tid))
+            self._put(self.ledger,LedgerEntry(f'{tid}:commission',_ctx(command).branch_id,'transfer_commission_expense','TRANSFER_COMMISSION',debit=comm,reference_id=tid))
             self._audit(_ctx(command),'TRANSFER_WALLET',tid,{'amount':str(a),'commission':str(comm),'source':s.name,'destination':d.name}); self._processed[_ctx(command).idempotency_key]=tid; return tid
 
     def create_installment_plan(self,command,sale_id,customer_id,down_payment,rate_percent,term_months,rounding='0.01'):
@@ -377,9 +386,17 @@ class ERPCommandEngine:
             self._auth(_ctx(command),'inventory.create_unit'); old=self._idem(_ctx(command))
             if old:return old
             if unit.branch_id!=_ctx(command).branch_id: raise DomainError('BRANCH_ACCESS_DENIED','الوحدة خارج الفرع.',{})
+            if not self.products.get(unit.product_id):
+                raise DomainError('NOT_FOUND','المنتج غير موجود.',{'product_id':unit.product_id})
+            identifiers=[x.strip() for x in (unit.imei1,unit.imei2,unit.serial_number) if x and str(x).strip()]
+            if not identifiers:
+                raise DomainError('INVALID_INPUT','يجب تسجيل IMEI أو Serial Number للوحدة.',{})
+            if len(set(identifiers)) != len(identifiers):
+                raise DomainError('IMEI_ALREADY_EXISTS','معرّفات الوحدة مكررة.',{})
             for u in self.units.all():
-                if unit.imei1 and (u.imei1==unit.imei1 or u.imei2==unit.imei1) or unit.imei2 and (u.imei1==unit.imei2 or u.imei2==unit.imei2):
-                    raise DomainError('IMEI_ALREADY_EXISTS','الـIMEI موجود بالفعل.',{})
+                existing=[x.strip() for x in (u.imei1,u.imei2,u.serial_number) if x and str(x).strip()]
+                if set(identifiers) & set(existing):
+                    raise DomainError('IMEI_ALREADY_EXISTS','الـIMEI أو Serial Number موجود بالفعل.',{})
             if unit.final_cost<0: raise DomainError('INVALID_INPUT','التكلفة غير صحيحة.',{})
             self._put(self.units,unit); self._audit(_ctx(command),'REGISTER_PRODUCT_UNIT',unit.id); self._processed[_ctx(command).idempotency_key]=unit; return unit
 

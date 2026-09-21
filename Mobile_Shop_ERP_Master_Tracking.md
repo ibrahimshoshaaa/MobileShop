@@ -174,7 +174,7 @@
 - 🟢 installments accounting end-to-end: principal/interest + down-payment posting + rounding + duplicate-plan prevention + collection regressions اجتازت CI.
 - ⬜ IMEI lifecycle كامل.
 - ⬜ branch transfer lifecycle.
-- ⬜ day closing / reopening rules.
+- 🟢 day closing / reopening rules: future-date guard + lock/reopen behavior covered by regression tests.
 - 🟢 duplicate-command / concurrent-command safety: idempotency موجودة، والـfinancial commands أصبحت داخل transaction rollback boundary، واختبارات regression اجتازت CI.
 - ⬜ تقارير مالية متسقة مع مصدر SQL المركزي — بند تقارير/online workflows لاحق، وليس ضمن هذا الـphase.
 
@@ -240,7 +240,7 @@
 
 **Branch:** `feat/financial-accounting-invariants`  
 **CI:** 🟢 PR #16 — Python + Flutter analyze + security passed  
-**Tests:** 🟢 150 Python tests passed، 2 warnings  
+**Tests:** 🟢 152 Python tests passed، 2 warnings  
 **Production audit:** 🟢 passed  
 **Financial Phase:** 🟢 مكتملة برمجياً على الفرع؛ يلزم دمج PR #16 فقط بعد المراجعة النهائية  
 **Production-ready:** ⬜ لا — staging/Turso operational verification وباقي P0 ما زالت مطلوبة  

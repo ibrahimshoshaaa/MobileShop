@@ -2,7 +2,7 @@ from decimal import Decimal
 from datetime import date, timedelta
 import pytest
 from shared.contracts.commands import CommandContext, CreateSaleCommand
-from shared.models.erp import Product, ProductUnit, Wallet, Supplier, Customer, Employee
+from shared.models.erp import Product, ProductUnit, Wallet, Supplier, Customer, Employee, Branch
 from shared.contracts.errors import DomainError
 from backend.functions.services.erp_engine import ERPCommandEngine
 from backend.functions.offline.sync import OfflineSync
@@ -14,7 +14,7 @@ def C(cid, perms=None, branch='b1'):
 def setup():
     e=ERPCommandEngine(); e.products.create('p',Product('p','Phone','SKU','PHONE_NEW',barcode='BAR',default_cost=Decimal('100')))
     e.products.create('a',Product('a','Accessory','SKU-A','ACCESSORY',default_cost=Decimal('10')))
-    e.wallets.create('cash',Wallet('cash','b1','Cash','CASH')); e.wallets.create('dig',Wallet('dig','b1','Digital','DIGITAL')); e.wallets.create('cash2',Wallet('cash2','b2','Cash2','CASH'))
+    e.wallets.create('cash',Wallet('cash','b1','Cash','CASH')); e.wallets.create('dig',Wallet('dig','b1','Digital','DIGITAL')); e.wallets.create('cash2',Wallet('cash2','b2','Cash2','CASH')); e.branches.create('b1',Branch('b1','Branch 1','B1')); e.branches.create('b2',Branch('b2','Branch 2','B2'))
     e.ledger.create('open',{'id':'open','branch_id':'b1','account_id':'wallet:cash','debit':Decimal('5000'),'credit':Decimal('0')})
     e.ledger.create('opend',{'id':'opend','branch_id':'b1','account_id':'wallet:dig','debit':Decimal('5000'),'credit':Decimal('0')})
     e.customers.create('c',Customer('c','Customer')); e.suppliers.create('s',Supplier('s','Supplier'))
@@ -63,7 +63,7 @@ def test_13_partial_supplier_payment():
 
 def test_14_customer_credit(): e=setup(); s=sale(e,pay=50,customer='c'); assert e.customer_balance('c','b1')==100
 
-def test_15_installment_sale(): e=setup(); s=sale(e,pay=50,customer='c'); p=e.create_installment_plan(C('ip'),s.id,'c',50,10,2); assert p.total_due==Decimal('55.00')
+def test_15_installment_sale(): e=setup(); s=sale(e,pay=50,customer='c'); p=e.create_installment_plan(C('ip'),s.id,'c',50,10,2,down_payment_wallet_id='cash'); assert p.total_due==Decimal('55.00')
 
 def test_16_installment_collection():
     e=setup(); s=sale(e,pay=50,customer='c'); p=e.create_installment_plan(C('ip'),s.id,'c',50,10,2); e.collect_installment(C('col'),p.id,55,'cash'); assert e.installment_remaining(p.id)==0
@@ -74,9 +74,9 @@ def test_17_partial_installment():
 def test_18_overdue():
     e=setup(); s=sale(e,pay=50,customer='c'); p=e.create_installment_plan(C('ip'),s.id,'c',50,10,2); e.create_installment_schedule(p.id,date.today()-timedelta(days=90)); assert any(x['status']=='OVERDUE' for x in e.installment_status(p.id))
 
-def test_19_five_month_rate(): e=setup(); s=sale(e,pay=50,customer='c'); assert e.create_installment_plan(C('x'),s.id,'c',50,20,5).total_due==60
+def test_19_five_month_rate(): e=setup(); s=sale(e,pay=50,customer='c'); assert e.create_installment_plan(C('x'),s.id,'c',50,20,5,down_payment_wallet_id='cash').total_due==60
 
-def test_20_ten_month_rate(): e=setup(); s=sale(e,pay=50,customer='c'); assert e.create_installment_plan(C('x'),s.id,'c',50,30,10).total_due==65
+def test_20_ten_month_rate(): e=setup(); s=sale(e,pay=50,customer='c'); assert e.create_installment_plan(C('x'),s.id,'c',50,30,10,down_payment_wallet_id='cash').total_due==65
 
 def test_21_cash_digital_transfer(): e=setup(); x=e.transfer_customer(C('x'),'cash','dig',100); assert x['commission']==1
 

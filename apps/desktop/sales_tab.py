@@ -206,7 +206,7 @@ class NewSaleWindow(tk.Toplevel):
             self.remaining_label.config(text=f"المتبقي: {remaining:.2f} ج.م", foreground="red")
 
     def _add_payment(self):
-        dialog = PaymentEntryDialog(self, default_amount=self._total() - self._paid())
+        dialog = PaymentEntryDialog(self, default_amount=self._total() - self._paid(), repo=self.repo)
         self.wait_window(dialog)
         if dialog.result:
             self.payments.append(dialog.result)
@@ -241,9 +241,10 @@ class NewSaleWindow(tk.Toplevel):
 
 
 class PaymentEntryDialog(tk.Toplevel):
-    def __init__(self, master, default_amount=0.0):
+    def __init__(self, master, default_amount=0.0, repo=sales_repo):
         super().__init__(master)
         self.result = None
+        self.repo = repo
         self.title("إضافة دفعة")
         self.geometry("300x220")
         self._build(default_amount)
@@ -253,7 +254,7 @@ class PaymentEntryDialog(tk.Toplevel):
         pad = {"padx": 12, "pady": 6}
         ttk.Label(self, text="طريقة الدفع").pack(anchor="e", **pad)
         self.method_var = tk.StringVar(value=self.repo.PAYMENT_METHODS[0][1])
-        ttk.Combobox(self, textvariable=self.method_var, values=[label for _, label in sales_repo.PAYMENT_METHODS], state="readonly").pack(fill="x", **pad)
+        ttk.Combobox(self, textvariable=self.method_var, values=[label for _, label in self.repo.PAYMENT_METHODS], state="readonly").pack(fill="x", **pad)
 
         ttk.Label(self, text="المبلغ").pack(anchor="e", **pad)
         self.amount_var = tk.StringVar(value=f"{max(default_amount, 0):.2f}")
@@ -271,8 +272,8 @@ class PaymentEntryDialog(tk.Toplevel):
         except ValueError:
             self.error_label.config(text="أدخل مبلغًا صحيحًا أكبر من صفر.")
             return
-        code = next(code for code, label in sales_repo.PAYMENT_METHODS if label == self.method_var.get())
-        self.result = sales_repo.Payment(method=code, amount=amount)
+        code = next(code for code, label in self.repo.PAYMENT_METHODS if label == self.method_var.get())
+        self.result = self.repo.Payment(method=code, amount=amount)
         self.destroy()
 
 

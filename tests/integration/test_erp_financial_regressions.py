@@ -1,7 +1,10 @@
 from decimal import Decimal
+import pytest
+
 
 from backend.functions.services.erp_engine import ERPCommandEngine
 from shared.contracts.commands import CommandContext, CreateSaleCommand
+from shared.contracts.errors import DomainError
 from shared.models.erp import Customer, Product, Wallet
 
 

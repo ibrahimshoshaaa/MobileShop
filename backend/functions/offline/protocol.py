@@ -38,7 +38,8 @@ class SyncProtocol:
                 self.db = libsql.connect(database=url, auth_token=token)
             else:
                 self.db = sqlite3.connect(str(path), check_same_thread=False)
-        self.db.execute("PRAGMA busy_timeout=5000")
+        if isinstance(self.db, sqlite3.Connection):
+            self.db.execute("PRAGMA busy_timeout=5000")
         self.db.executescript("""
         CREATE TABLE IF NOT EXISTS sync_receipts (
             tenant_id TEXT NOT NULL,

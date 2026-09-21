@@ -41,7 +41,7 @@ def _wallet_for_payment(method):
 def _payments(plan_id):
     # The public query endpoint exposes the primary installment repository;
     # payment rows are retrieved through the dedicated API endpoint added below.
-    rows=_client.get_entity(f"installment-payments/{plan_id}")
+    rows=[x for x in _client.get_entity("installment-payments") if x.get("plan_id")==plan_id]
     return [InstallmentPayment(id=x["id"],plan_id=x["plan_id"],amount=float(x["amount"]),method=x["wallet_id"],paid_at=datetime.fromisoformat(x["paid_at"].replace("Z","+00:00"))) for x in rows]
 
 def list_payments(plan_id): return _payments(plan_id)

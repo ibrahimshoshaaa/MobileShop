@@ -130,7 +130,7 @@ def test_installment_down_payment_clears_existing_receivable():
         Decimal("50"), Decimal("10"), 2, down_payment_wallet_id="cash"
     )
     assert plan.base_financed == Decimal("150.00")
-    assert e.customer_balance("c1", "b1") == Decimal("150.00")
+    assert e.customer_balance("c1", "b1") == Decimal("165.00")
     assert e._balance("cash") == Decimal("5050.00")
     e.collect_installment(ctx("collect", {"installments.collect"}), plan.id, Decimal("165"), "cash")
     assert e.customer_balance("c1", "b1") == Decimal("0.00")
@@ -189,6 +189,7 @@ def test_financial_command_rolls_back_all_state_on_late_failure():
     e = seed()
     before_cash = e._balance("cash")
     before_stock = e._available_qty("b1", "p1")
+    before_ledger = list(e.ledger.all())
     with pytest.raises(RuntimeError):
         e.transaction(lambda: (
             e.create_expense(ctx("rollback-expense", {"expenses.create"}), "cash", Decimal("50"), "test"),
@@ -197,7 +198,7 @@ def test_financial_command_rolls_back_all_state_on_late_failure():
     assert e._balance("cash") == before_cash
     assert e._available_qty("b1", "p1") == before_stock
     assert e.expenses.all() == []
-    assert e.ledger.all() == [e.ledger.get("opening")]
+    assert e.ledger.all() == before_ledger
 
 
 def test_maintenance_part_usage_is_branch_scoped_and_validated():

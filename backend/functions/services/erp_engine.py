@@ -356,6 +356,9 @@ class ERPCommandEngine:
             if not self.products.get(product_id):raise DomainError('NOT_FOUND','المنتج غير موجود.',{})
             if q==0:raise DomainError('INVALID_INPUT','التعديل لا يمكن أن يكون صفراً.',{})
             if q<0 and self._available_qty(_ctx(command).branch_id,product_id)+q<0:raise DomainError('INSUFFICIENT_STOCK','المخزون غير كافٍ.',{})
+            # A zero adjustment cost must not silently create unvalued inventory;
+            # use the branch weighted-average cost as the valuation basis.
+            if c==0:c=self._avg_cost(_ctx(command).branch_id,product_id)
             m=StockMovement(_ctx(command).command_id,_ctx(command).branch_id,product_id,q,'ADJUSTMENT',_ctx(command).command_id,None,c)
             self._put(self.stock,m)
             value=money(abs(q)*c)

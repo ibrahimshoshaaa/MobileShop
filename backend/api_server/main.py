@@ -91,7 +91,7 @@ if os.getenv("APP_ENV", "development").lower() == "production":
 engine = DurableERPCommandEngine(_DB_PATH)
 if os.getenv("APP_ENV", "development").lower() != "production":
     seed_dev_data(engine)
-sync_protocol = SyncProtocol(_DB_PATH.with_name("sync_protocol.db"))
+sync_protocol = SyncProtocol(connection=engine._conn)
 
 verify_token = verify_production_token if os.getenv("AUTH_PROVIDER", "dev").lower() == "firebase" else verify_dev_token
 

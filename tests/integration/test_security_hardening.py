@@ -1,4 +1,5 @@
 import pytest
+from decimal import Decimal
 from backend.functions.api.http import handle
 from backend.functions.services.erp_engine import ERPCommandEngine
 from shared.contracts.errors import DomainError

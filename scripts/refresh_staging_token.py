@@ -14,6 +14,7 @@ import urllib.request
 import firebase_admin
 from firebase_admin import auth, credentials
 from google.auth.transport.requests import Request
+from google.oauth2 import service_account
 
 
 def required(name: str) -> str:
@@ -32,15 +33,35 @@ def main() -> int:
         firebase_admin.initialize_app(credentials.Certificate(service_account))
 
     app = firebase_admin.get_app()
-    google_cred = app.credential.get_credential()
-    if not google_cred.valid:
-        google_cred.refresh(Request())
+    service_account_info = json.loads(raw)
+    google_cred = service_account.Credentials.from_service_account_info(
+        service_account_info,
+        scopes=["https://www.googleapis.com/auth/cloud-platform"],
+    )
+    google_cred.refresh(Request())
 
     project_id = getattr(google_cred, "project_id", None) or app.project_id
     if not project_id:
         raise SystemExit("Could not determine Firebase project ID")
 
-    config_url = f"https://identitytoolkit.googleapis.com/v2/projects/{project_id}/config"
+    # The authenticated Identity Toolkit v1 config endpoint returns the Web API
+    # key for a developer/service-account call. This avoids storing a separate
+    # Firebase Web API key as a GitHub secret.
+    project_url = f"https://cloudresourcemanager.googleapis.com/v1/projects/{project_id}"
+    project_request = urllib.request.Request(
+        project_url,
+        headers={"Authorization": f"Bearer {google_cred.token}"},
+    )
+    with urllib.request.urlopen(project_request, timeout=20) as response:
+        project = json.loads(response.read().decode("utf-8"))
+    project_number = str(project.get("projectNumber") or "").strip()
+    if not project_number:
+        raise SystemExit("Could not determine Firebase project number")
+
+    config_url = (
+        "https://identitytoolkit.googleapis.com/v1/projects"
+        f"?projectNumber={project_number}"
+    )
     request = urllib.request.Request(
         config_url,
         headers={"Authorization": f"Bearer {google_cred.token}"},
@@ -48,9 +69,9 @@ def main() -> int:
     with urllib.request.urlopen(request, timeout=20) as response:
         config = json.loads(response.read().decode("utf-8"))
 
-    api_key = ((config.get("clientConfig") or {}).get("apiKey") or "").strip()
+    api_key = str(config.get("apiKey") or "").strip()
     if not api_key:
-        raise SystemExit("Firebase Identity Platform API key was not returned by project config")
+        raise SystemExit("Firebase Identity Platform API key was not returned by authenticated project config")
 
     custom_token = auth.create_custom_token(uid, app=app)
     if isinstance(custom_token, bytes):

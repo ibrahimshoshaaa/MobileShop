@@ -149,7 +149,7 @@ class NewSaleWindow(tk.Toplevel):
                 line.quantity += 1
                 self._refresh_cart()
                 return
-        self.cart.append(sales_repo.SaleItem(product_id=product.id, product_name=product.name, quantity=1, unit_price=product.selling_price))
+        self.cart.append(self.repo.SaleItem(product_id=product.id, product_name=product.name, quantity=1, unit_price=product.selling_price))
         self._refresh_cart()
 
     def _selected_cart_index(self):

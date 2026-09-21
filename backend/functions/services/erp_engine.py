@@ -282,7 +282,8 @@ class ERPCommandEngine:
         with self._lock:
             self._auth(_ctx(command),'stock.adjust'); old=self._idem(_ctx(command))
             if old:return old
-            q=dec(quantity); c=dec(cost)
+            q=dec(quantity); c=money(cost)
+            if c<0:raise DomainError('INVALID_INPUT','التكلفة لا يمكن أن تكون سالبة.',{})
             if not self.products.get(product_id):raise DomainError('NOT_FOUND','المنتج غير موجود.',{})
             if q==0:raise DomainError('INVALID_INPUT','التعديل لا يمكن أن يكون صفراً.',{})
             if q<0 and self._available_qty(_ctx(command).branch_id,product_id)+q<0:raise DomainError('INSUFFICIENT_STOCK','المخزون غير كافٍ.',{})
@@ -300,7 +301,9 @@ class ERPCommandEngine:
             if not self.products.get(product_id):raise DomainError('NOT_FOUND','المنتج غير موجود.',{'product_id':product_id})
             if not str(to_branch).strip():raise DomainError('INVALID_INPUT','الفرع المستلم غير صحيح.',{})
             if self._available_qty(from_branch,product_id)<q:raise DomainError('INSUFFICIENT_STOCK','المخزون غير كافٍ.',{})
-            tid=_ctx(command).command_id; self._put(self.stock,StockMovement(f'{tid}:out',from_branch,product_id,-q,'TRANSFER_OUT',tid,None,dec(cost))); self._put(self.stock,StockMovement(f'{tid}:in',to_branch,product_id,q,'TRANSFER_IN',tid,None,dec(cost)))
+            c=money(cost)
+            if c<0:raise DomainError('INVALID_INPUT','التكلفة لا يمكن أن تكون سالبة.',{})
+            tid=_ctx(command).command_id; self._put(self.stock,StockMovement(f'{tid}:out',from_branch,product_id,-q,'TRANSFER_OUT',tid,None,c)); self._put(self.stock,StockMovement(f'{tid}:in',to_branch,product_id,q,'TRANSFER_IN',tid,None,c))
             self._audit(_ctx(command),'TRANSFER_STOCK',tid,{'from':from_branch,'to':to_branch,'quantity':str(q)}); self._processed[_ctx(command).idempotency_key]=tid; return tid
 
     def transfer_between_wallets(self,command,source,destination,amount):

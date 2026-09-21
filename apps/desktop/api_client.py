@@ -62,7 +62,22 @@ class ApiClient:
         return result.get("data")
 
     def get_products(self):
-        result = self._request("GET", f"/products?branch_id={self.branch_id}")
+        return self.get_entity("products")
+
+    def get_entity(self, entity: str, limit: int = 100):
+        result = self._request("GET", f"/query/{entity}?branch_id={self.branch_id}&limit={limit}")
         if not result.get("ok", True):
-            raise ApiError((result.get("error") or {}).get("message", "تعذّر تحميل الأصناف."))
+            raise ApiError((result.get("error") or {}).get("message", "تعذّر تحميل البيانات."))
         return result.get("data", [])
+
+    def get_sales(self, limit: int = 50):
+        result = self._request("GET", f"/sales?branch_id={self.branch_id}&limit={limit}")
+        if not result.get("ok", True):
+            raise ApiError((result.get("error") or {}).get("message", "تعذّر تحميل المبيعات."))
+        return result.get("data", [])
+
+    def get_customers(self, limit: int = 100):
+        return self.get_entity("customers", limit)
+
+    def get_wallets(self, limit: int = 100):
+        return self.get_entity("wallets", limit)

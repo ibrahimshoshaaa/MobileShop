@@ -138,6 +138,18 @@ class _RequestAdapter:
         return self._body
 
 
+@app.get("/")
+def root():
+    """Deployment landing endpoint; the Vercel project hosts the API, not a browser UI."""
+    return {
+        "service": "Mobile Shop ERP API",
+        "status": "ok",
+        "health": "/health",
+        "api": ["/products", "/query/{entity}", "/command", "/sync/upload", "/sync/changes"],
+        "clients": ["Flutter mobile/admin", "Python desktop POS"],
+    }
+
+
 @app.get("/health")
 def health():
     return {"status": "ok", "mode": os.getenv("APP_ENV", "development").lower(), "persistence": "turso/libsql" if os.getenv("TURSO_DATABASE_URL") else "sqlite"}

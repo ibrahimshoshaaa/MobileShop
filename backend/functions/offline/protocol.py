@@ -105,6 +105,7 @@ class SyncProtocol:
                     "command_id": command_id, "status": row[0],
                     "result": json.loads(row[1]) if row[1] else None,
                     "error_code": row[2],
+                    "retryable": row[0] == "PROCESSING",
                     "idempotent_replay": True,
                 })
                 continue

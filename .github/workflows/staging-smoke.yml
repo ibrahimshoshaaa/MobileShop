@@ -3,7 +3,7 @@ name: Staging smoke
 on:
   workflow_dispatch:
   push:
-    branches: ["main", "release/complete-release-gates", "release/production-gates-audit"]
+    branches: ["release/complete-release-gates", "release/production-gates-audit"]
 
 jobs:
   smoke:

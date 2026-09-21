@@ -183,6 +183,37 @@ _QUERY_REPOS = {
     "ledger": "ledger", "audit": "audit", "employees": "employees",
 }
 
+@app.get("/sales")
+def list_sales_endpoint(request: Request, branch_id: str = "LOCAL_BRANCH", limit: int = 50):
+    """Dedicated tenant/branch-scoped sales read endpoint for the desktop Online mode."""
+    claims = verify_token(request)
+    if not claims:
+        return JSONResponse({"ok": False, "error": {"code": "UNAUTHORIZED", "message": "التوثيق مطلوب.", "details": {}}}, status_code=401)
+    tenant_id = claims.get("tenant_id")
+    if not tenant_id:
+        return JSONResponse({"ok": False, "error": {"code": "TENANT_REQUIRED", "message": "هوية المستأجر مطلوبة.", "details": {}}}, status_code=401)
+    if branch_id not in claims.get("branch_ids", ()):
+        return JSONResponse({"ok": False, "error": {"code": "BRANCH_ACCESS_DENIED", "message": "لا توجد صلاحية وصول لهذا الفرع.", "details": {}}}, status_code=403)
+    if "sales.read" not in claims.get("permissions", ()):
+        return JSONResponse({"ok": False, "error": {"code": "FORBIDDEN", "message": "لا توجد صلاحية قراءة للمبيعات.", "details": {"permission": "sales.read"}}}, status_code=403)
+    if limit < 1 or limit > 500:
+        return JSONResponse({"ok": False, "error": {"code": "INVALID_INPUT", "message": "limit يجب أن يكون بين 1 و500.", "details": {}}}, status_code=400)
+
+    token = set_tenant_scope(str(tenant_id))
+    try:
+        rows = []
+        for value in engine.sales.all():
+            row = _json_safe(value)
+            if isinstance(row, dict) and row.get("branch_id") != branch_id:
+                continue
+            rows.append(row)
+            if len(rows) >= limit:
+                break
+        return JSONResponse({"ok": True, "data": rows})
+    finally:
+        reset_tenant_scope(token)
+
+
 @app.get("/query/{entity}")
 def query_endpoint(request: Request, entity: str, branch_id: str = "LOCAL_BRANCH",
                    limit: int = 100):

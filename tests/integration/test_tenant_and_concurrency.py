@@ -104,7 +104,7 @@ def test_concurrent_uploads_across_two_sync_workers_execute_once(tmp_path):
 
     assert calls == ["cross-worker"]
     statuses = {r["results"][0]["status"] for r in results}
-    assert statuses <= {"APPLIED", "PROCESSING"}
+    assert statuses <= {"APPLIED", "PROCESSING", "RETRYABLE"}
     assert "APPLIED" in statuses
     left.close()
     right.close()

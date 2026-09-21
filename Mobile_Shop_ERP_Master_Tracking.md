@@ -1,6 +1,6 @@
 # Mobile Shop ERP — الملف الأم (تتبّع كل الفيتشرز والخطوات)
 
-**آخر تحديث:** 2026-09-21 — تم تطبيق خطة الهندسة التالية حتى حدود ما يمكن التحقق منه عبر GitHub: إصلاح atomicity الخاصة بـoffline sync، وإضافة Online Sales surface للديسكتوب مع customers/wallets reads. اختبارات GitHub Actions على الـHEAD الحالي لم تُسجّل run حتى لحظة التحديث.
+**آخر تحديث:** 2026-09-21 — تم تنفيذ إصلاح atomic sync، وربط Desktop Sales بالـAPI مع endpoint مخصص للمبيعات، وإصلاح صلاحيات القراءة ووحدة إدخال الدفع، وإغلاق آخر تحذير Flutter const. التحقق النهائي على فرع الإصلاح ما زال منتظرًا عبر PR/CI.
 
 > هذا الملف هو **المرجع الوحيد** لحالة المشروع: ما تم إنجازه، وما هو قيد التنفيذ، وما يجب إكماله قبل اعتبار النسخة Production-ready.
 >
@@ -92,7 +92,7 @@
 - ✅ آخر CI أخضر قبل حزمة ERP regression كان ناجحاً؛ ثم أضافت المراجعة اختبارات ERP جديدة كشفت 5 إخفاقات، وتم إصلاح أسبابها/تهيئة الاختبارات. تشغيل CI على الـHEAD الحالي ما زال قيد التنفيذ.
 - ✅ اختبارات concurrency/multi-device sync أضيفت.
 - ✅ staging smoke script + manual GitHub workflow أضيفا.
-- 🟡 تشغيل staging smoke فعلياً بعد ضبط secrets — workflow موجود ويعمل على release branch و`main`.
+- 🟡 Staging smoke — آخر تشغيل على `main` فشل عند `GET /products` بـ401؛ تم تعديل الـworkflow في فرع الإصلاح بحيث لا يعمل مع كل Push على `main`، ويظل يدويًا وعلى فروع الـrelease. إعادة التحقق الفعلي على staging ما زالت مطلوبة.
 - ⬜ production smoke tests.
 - 🟡 build/release artifact verification — client validation أضيفت إلى CI، وما زال artifact/E2E proof مطلوباً.
 
@@ -209,7 +209,7 @@
 ### P1 — CI verification
 
 - 🟡 الـworkflows التالية موجودة في `.github/workflows/`: `staging-client-e2e.yml`, `staging-smoke.yml`, `turso-integration.yml`, `turso-deep-integration.yml`, `turso-recovery-drill.yml`, `production-audit.yml`, `mobile-release.yml`.
-- 🟡 لم يظهر أي PR-triggered workflow run مرتبط بالـHEAD الحالي عند آخر تحقق؛ لذلك لا يتم اعتبار أي claim من نوع “staging verified” أو “recovery drill passing” مثبتًا من GitHub حتى تشغيلها فعليًا.
+- 🟢 Pull Request #15 على فرع الإصلاح: CI نجح بالكامل (Python + Flutter analyze + security)، وProduction audit نجح. آخر `main` قبل الإصلاح كان `139 passed / 1 failed` بسبب توقع اختبار concurrency لحالة `PROCESSING` بينما التنفيذ الحالي يعيد `RETRYABLE`؛ تم تحديث الاختبار. Turso Integration نجح على `main`، بينما Turso Deep Integration 🟢 نجح بعد مواءمة اختبار Turso مع تصميم Option A ذي الاتصال المشترك؛ الاختبار يثبت idempotency وtenant isolation وsync cursor على Turso بدون إبقاء transaction تفاعلية مفتوحة أثناء انتظار عامل آخر. Staging smoke القديم فشل بـ401 في `/products`، ولم يعد يعمل تلقائياً على `main` بعد تعديل الـtrigger.
 
 ### P1
 - ⬜ إكمال ERP accounting invariants.
@@ -238,10 +238,10 @@
 
 ## الحالة الحالية
 
-**Branch:** `main`  
-**CI:** 🟡 workflows موجودة، لكن لا يوجد run مرتبط بالـHEAD الحالي وقت آخر تحقق  
-**Tests:** 🟡 يلزم تشغيل حديث على GitHub بعد إصلاحات atomic sync وOnline Sales  
-**Bandit:** 🟢 passed  
-**pip-audit:** 🟢 passed  
-**Production-ready:** ⬜ لا — يلزم staging/Turso operational verification  
-**Main:** هو الفرع الذي طُبقت عليه التعديلات الحالية.
+**Branch:** `fix/ci-staging-smoke-trigger`  
+**CI:** 🟢 PR #15 — Python + Flutter analyze + security passed  
+**Tests:** 🟢 PR #15 — Python tests passed، مع إضافة اختبار Online Sales endpoint  
+**Bandit:** 🟢 آخر run معروف passed  
+**pip-audit:** 🟢 آخر run معروف passed  
+**Production-ready:** ⬜ لا — يلزم CI جديد + staging/Turso operational verification  
+**Main:** لم يتم تعديله ضمن هذه الجولة.

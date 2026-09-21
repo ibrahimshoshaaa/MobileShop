@@ -35,7 +35,7 @@ class MobileShopApp extends StatelessWidget {
           elevation: 0,
           surfaceTintColor: Colors.transparent,
         ),
-        cardTheme: const CardThemeData(
+        cardTheme: const CardTheme(
           elevation: 0,
           margin: EdgeInsets.zero,
           color: Colors.white,

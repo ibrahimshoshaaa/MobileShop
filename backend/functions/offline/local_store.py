@@ -27,9 +27,17 @@ class LocalStore:
             command_id TEXT PRIMARY KEY,
             payload_json TEXT NOT NULL,
             status TEXT NOT NULL CHECK(status IN ('PENDING','APPLIED','CONFLICT','FAILED')),
-            error_code TEXT
+            error_code TEXT,
+            attempts INTEGER NOT NULL DEFAULT 0,
+            next_attempt_at TEXT
         );
         """)
+        self.db.commit()
+        columns = {row[1] for row in self.db.execute("PRAGMA table_info(sync_operations)").fetchall()}
+        if "attempts" not in columns:
+            self.db.execute("ALTER TABLE sync_operations ADD COLUMN attempts INTEGER NOT NULL DEFAULT 0")
+        if "next_attempt_at" not in columns:
+            self.db.execute("ALTER TABLE sync_operations ADD COLUMN next_attempt_at TEXT")
         self.db.commit()
 
     def set_mode(self, mode: str) -> None:
@@ -55,8 +63,15 @@ class LocalStore:
         self.db.commit()
 
     def pending(self) -> list[dict[str, Any]]:
-        rows = self.db.execute("SELECT command_id,payload_json,status FROM sync_operations WHERE status='PENDING' ORDER BY rowid").fetchall()
+        rows = self.db.execute("SELECT command_id,payload_json,status FROM sync_operations WHERE status='PENDING' AND (next_attempt_at IS NULL OR next_attempt_at <= CURRENT_TIMESTAMP) ORDER BY rowid").fetchall()
         return [{"command_id": r["command_id"], "payload": json.loads(r["payload_json"]), "status": r["status"]} for r in rows]
+
+    def mark_retry(self, command_id: str, error_code: str, next_attempt_at: str) -> None:
+        self.db.execute(
+            "UPDATE sync_operations SET error_code=?, attempts=attempts+1, next_attempt_at=? WHERE command_id=?",
+            (error_code, next_attempt_at, command_id),
+        )
+        self.db.commit()
 
     def mark(self, command_id: str, status: str, error_code: str | None = None) -> None:
         if status not in {"APPLIED","CONFLICT","FAILED"}: raise ValueError("invalid terminal status")

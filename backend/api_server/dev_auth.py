@@ -15,6 +15,7 @@ from __future__ import annotations
 _DEV_TOKENS = {
     "dev-owner-token": {
         "uid": "dev-owner",
+        "tenant_id": "dev-tenant",
         "branch_ids": ("LOCAL_BRANCH",),
         "permissions": (
             "sales.create", "sales.void", "sales.return", "sales.discount",
@@ -30,6 +31,7 @@ _DEV_TOKENS = {
     },
     "dev-cashier-token": {
         "uid": "dev-cashier",
+        "tenant_id": "dev-tenant",
         "branch_ids": ("LOCAL_BRANCH",),
         "permissions": ("sales.create", "customers.edit", "installments.collect"),
     },
@@ -54,4 +56,5 @@ def verify_dev_token(request) -> dict | None:
         "uid": claims["uid"],
         "branch_ids": frozenset(claims["branch_ids"]),
         "permissions": frozenset(claims["permissions"]),
+        "tenant_id": claims["tenant_id"],
     }

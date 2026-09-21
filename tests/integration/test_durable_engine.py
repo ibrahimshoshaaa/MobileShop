@@ -95,3 +95,23 @@ def test_failed_transaction_does_not_persist(tmp_path):
     # and reloads here — only the failed sale is absent.
     assert e2.products.get("p1").sku == "SKU-1"
     e2.close()
+
+
+def test_tenant_scope_survives_durable_restart(tmp_path):
+    from backend.functions.services.durable_engine import DurableERPCommandEngine
+    from shared.contracts.commands import CommandContext
+    from shared.models.erp import Product
+
+    db = tmp_path / "tenant.db"
+    ctx_a = CommandContext("c-a", "u-a", "b1", frozenset({"products.edit"}), "tenant-a")
+    ctx_b = CommandContext("c-b", "u-b", "b1", frozenset({"products.edit"}), "tenant-b")
+
+    engine = DurableERPCommandEngine(db)
+    engine.create_product(ctx_a, Product("p-a", "A", "SKU-A", "ACCESSORY"))
+    engine.close()
+
+    reopened = DurableERPCommandEngine(db)
+    reopened.create_product(ctx_b, Product("p-b", "B", "SKU-B", "ACCESSORY"))
+    assert reopened.products.get("p-a") is None
+    assert reopened.products.get("p-b") is not None
+    reopened.close()

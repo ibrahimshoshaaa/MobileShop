@@ -3,3 +3,5 @@
 # are only needed to run backend/api_server/main.py locally.
 fastapi>=0.110,<1.0
 uvicorn[standard]>=0.29,<1.0
+firebase-admin>=6.5,<7.0
+libsql==0.1.11

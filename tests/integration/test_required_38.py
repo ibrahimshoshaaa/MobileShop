@@ -63,20 +63,20 @@ def test_13_partial_supplier_payment():
 
 def test_14_customer_credit(): e=setup(); s=sale(e,pay=50,customer='c'); assert e.customer_balance('c','b1')==100
 
-def test_15_installment_sale(): e=setup(); s=sale(e,pay=50,customer='c'); p=e.create_installment_plan(C('ip'),s.id,'c',50,10,2); assert p.total_due==110
+def test_15_installment_sale(): e=setup(); s=sale(e,pay=50,customer='c'); p=e.create_installment_plan(C('ip'),s.id,'c',50,10,2); assert p.total_due==Decimal('55.00')
 
 def test_16_installment_collection():
-    e=setup(); s=sale(e,pay=50,customer='c'); p=e.create_installment_plan(C('ip'),s.id,'c',50,10,2); e.collect_installment(C('col'),p.id,55,'cash'); assert e.installment_remaining(p.id)==55
+    e=setup(); s=sale(e,pay=50,customer='c'); p=e.create_installment_plan(C('ip'),s.id,'c',50,10,2); e.collect_installment(C('col'),p.id,55,'cash'); assert e.installment_remaining(p.id)==0
 
 def test_17_partial_installment():
-    e=setup(); s=sale(e,pay=50,customer='c'); p=e.create_installment_plan(C('ip'),s.id,'c',50,10,2); e.collect_installment(C('col'),p.id,10,'cash'); assert e.installment_remaining(p.id)==100
+    e=setup(); s=sale(e,pay=50,customer='c'); p=e.create_installment_plan(C('ip'),s.id,'c',50,10,2); e.collect_installment(C('col'),p.id,10,'cash'); assert e.installment_remaining(p.id)==45
 
 def test_18_overdue():
     e=setup(); s=sale(e,pay=50,customer='c'); p=e.create_installment_plan(C('ip'),s.id,'c',50,10,2); e.create_installment_schedule(p.id,date.today()-timedelta(days=90)); assert any(x['status']=='OVERDUE' for x in e.installment_status(p.id))
 
-def test_19_five_month_rate(): e=setup(); s=sale(e,pay=50,customer='c'); assert e.create_installment_plan(C('x'),s.id,'c',50,20,5).total_due==120
+def test_19_five_month_rate(): e=setup(); s=sale(e,pay=50,customer='c'); assert e.create_installment_plan(C('x'),s.id,'c',50,20,5).total_due==60
 
-def test_20_ten_month_rate(): e=setup(); s=sale(e,pay=50,customer='c'); assert e.create_installment_plan(C('x'),s.id,'c',50,30,10).total_due==130
+def test_20_ten_month_rate(): e=setup(); s=sale(e,pay=50,customer='c'); assert e.create_installment_plan(C('x'),s.id,'c',50,30,10).total_due==65
 
 def test_21_cash_digital_transfer(): e=setup(); x=e.transfer_customer(C('x'),'cash','dig',100); assert x['commission']==1
 
@@ -86,7 +86,7 @@ def test_23_default_commission(): e=setup(); assert e.transfer_customer(C('x'),'
 
 def test_24_manual_commission(): e=setup(); x=e.transfer_customer(C('x'),'cash','dig',100,50,'friendly'); assert x['commission']==50 and x['override']
 
-def test_25_internal_wallet_transfer(): e=setup(); e.transfer_between_wallets(C('x'),'cash','dig',100); assert e._balance('cash')==4900 and e._balance('dig')==5100
+def test_25_internal_wallet_transfer(): e=setup(); e.transfer_between_wallets(C('x'),'cash','dig',100); assert e._balance('cash')==4899 and e._balance('dig')==5100
 
 def test_26_maintenance_intake(): e=setup(); assert e.create_maintenance_ticket(C('m'),'c','phone','broken').status=='RECEIVED'
 

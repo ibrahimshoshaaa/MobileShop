@@ -93,23 +93,29 @@ class DurableERPCommandEngine(ERPCommandEngine):
 
     def transaction(self, fn):
         with self._lock:
+            # SyncProtocol may own the outer transaction so the business write
+            # and its sync receipt can commit or roll back together. In that
+            # case this method becomes a nested operation: snapshot/restore in
+            # memory, but do not BEGIN/COMMIT/ROLLBACK the caller's connection.
+            owns_transaction = not bool(getattr(self._conn, "in_transaction", False))
             began = False
             try:
-                # Serialize writers at the database boundary. Plain BEGIN lets
-                # two workers take stale snapshots and later overwrite each
-                # other; BEGIN IMMEDIATE acquires the SQLite/libSQL write lock
-                # before we reload state.
-                for attempt in range(5):
-                    try:
-                        self._conn.execute("BEGIN IMMEDIATE")
-                        began = True
-                        break
-                    except Exception:
-                        if attempt == 4:
-                            raise
-                        time.sleep(0.05 * (attempt + 1))
-                if not began:
-                    raise RuntimeError("unable to begin durable transaction")
+                if owns_transaction:
+                    # Serialize writers at the database boundary. Plain BEGIN
+                    # lets two workers take stale snapshots and later overwrite
+                    # each other; BEGIN IMMEDIATE acquires the write lock before
+                    # we reload state.
+                    for attempt in range(5):
+                        try:
+                            self._conn.execute("BEGIN IMMEDIATE")
+                            began = True
+                            break
+                        except Exception:
+                            if attempt == 4:
+                                raise
+                            time.sleep(0.05 * (attempt + 1))
+                    if not began:
+                        raise RuntimeError("unable to begin durable transaction")
                 # In remote mode, refresh the authoritative SQL state before
                 # taking the in-memory rollback snapshot. This prevents a
                 # failed command on one worker from restoring stale state.
@@ -124,10 +130,12 @@ class DurableERPCommandEngine(ERPCommandEngine):
                 # completion.py supplies the atomic in-memory rollback.
                 result = super().transaction(fn)
                 self._persist_changes(before, processed_before, commit=False)
-                self._conn.commit()
+                if owns_transaction:
+                    self._conn.commit()
                 return result
             except Exception:
-                self._conn.rollback()
+                if owns_transaction:
+                    self._conn.rollback()
                 if "before" in locals():
                     for name, repo in self._repo_attrs().items():
                         repo._data = dict(before.get(name, {}))

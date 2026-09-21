@@ -30,7 +30,8 @@ class ApiClient {
     String path, {
     Map<String, dynamic>? body,
   }) async {
-    final uri = Uri.parse('${baseUrl.replaceFirst(RegExp(r'/+
+    final base = baseUrl.endsWith('/') ? baseUrl.substring(0, baseUrl.length - 1) : baseUrl;
+    final uri = Uri.parse('$base$path');
     final client = HttpClient();
     try {
       final request = await (switch (method) {

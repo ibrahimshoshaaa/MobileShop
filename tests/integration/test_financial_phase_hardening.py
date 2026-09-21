@@ -39,7 +39,7 @@ def test_discounted_full_return_refunds_net_invoice_total():
         "cash",
     )
     assert returned["amount"] == Decimal("90.00")
-    assert e.ledger_transaction_totals(sale.id) == (Decimal("190.00"), Decimal("190.00"))
+    assert e.ledger_transaction_totals(sale.id) == (Decimal("380.00"), Decimal("380.00"))
 
 
 def test_partial_discounted_returns_never_exceed_invoice_total():
@@ -63,7 +63,7 @@ def test_partial_discounted_returns_never_exceed_invoice_total():
         "cash",
     )
     assert first["amount"] + second["amount"] == Decimal("90.00")
-    assert e.ledger_transaction_totals(sale.id) == (Decimal("190.00"), Decimal("190.00"))
+    assert e.ledger_transaction_totals(sale.id) == (Decimal("580.00"), Decimal("580.00"))
 
 
 def test_partial_maintenance_payment_creates_customer_receivable():

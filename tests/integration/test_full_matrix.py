@@ -2,7 +2,7 @@ from decimal import Decimal
 from datetime import date
 import pytest
 from shared.contracts.commands import CommandContext, CreateSaleCommand
-from shared.models.erp import Product, ProductUnit, Wallet, Employee, Customer
+from shared.models.erp import Product, ProductUnit, Wallet, Employee, Customer, Supplier
 from shared.contracts.errors import DomainError
 from backend.functions.services.erp_engine import ERPCommandEngine
 
@@ -61,3 +61,21 @@ def test_daily_closing_freezes_operations_until_reopened():
     assert reopened.locked is False
     e.create_expense(ctx('allowed'),'w',Decimal('10'),'after reopen')
     assert e._balance('w')==Decimal('490')
+
+def test_purchase_updates_stock_payable_and_supplier_payment():
+    e=base()
+    e.suppliers.create('sup', Supplier('sup','Supplier',branch_ids=('b1',)))
+    purchase=e.create_purchase(
+        ctx('purchase', {'purchases.create'}),
+        'sup',
+        [{'product_id':'p','quantity':2,'unit_cost':Decimal('100'),'wallet_id':'w'}],
+        Decimal('50'),
+    )
+    assert purchase.total==Decimal('200')
+    assert e._available_qty('b1','p')==Decimal('2')
+    assert e.supplier_balance('sup','b1')==Decimal('150')
+    assert e._balance('w')==Decimal('450')
+    e.pay_supplier(ctx('supplier-pay', {'purchases.pay_supplier'}),'sup','w',Decimal('150'))
+    assert e.supplier_balance('sup','b1')==Decimal('0')
+    assert e._balance('w')==Decimal('300')
+    assert sum((Decimal(str(getattr(x,'debit',0))) - Decimal(str(getattr(x,'credit',0))) for x in e.ledger.all()), Decimal('0'))==Decimal('0')

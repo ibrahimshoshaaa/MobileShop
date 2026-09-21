@@ -327,3 +327,13 @@ def test_exchange_is_atomic_when_new_sale_fails():
     assert e._balance("cash")==before_cash
     assert e._available_qty("b1","p1")==before_stock
     assert e.returns.all()==[]
+
+
+def test_stock_transfer_rejects_unknown_or_inactive_destination_branch():
+    e = seed()
+    with pytest.raises(DomainError) as exc:
+        e.transfer_stock(
+            ctx("transfer-unknown-branch", {"stock.transfer"}),
+            "p1", Decimal("1"), "b1", "missing", Decimal("100"),
+        )
+    assert exc.value.code == "BRANCH_ACCESS_DENIED"

@@ -32,7 +32,7 @@ class InMemoryInventoryRepository implements InventoryRepository {
   final _latency = const Duration(milliseconds: 220);
 
   List<Product> _seed() => [
-        Product(
+        const Product(
           id: 'p1',
           name: 'iPhone 13 128GB',
           sku: 'PH-IP13-128',
@@ -43,7 +43,7 @@ class InMemoryInventoryRepository implements InventoryRepository {
           reorderLevel: 3,
           quantity: 5,
         ),
-        Product(
+        const Product(
           id: 'p2',
           name: 'سامسونج A54 مستعمل',
           sku: 'PH-SA54-USED',
@@ -54,7 +54,7 @@ class InMemoryInventoryRepository implements InventoryRepository {
           reorderLevel: 2,
           quantity: 1,
         ),
-        Product(
+        const Product(
           id: 'p3',
           name: 'شاحن سريع 20 وات',
           sku: 'ACC-CHG-20W',
@@ -65,7 +65,7 @@ class InMemoryInventoryRepository implements InventoryRepository {
           reorderLevel: 10,
           quantity: 4,
         ),
-        Product(
+        const Product(
           id: 'p4',
           name: 'شاشة آيفون 12',
           sku: 'SP-SCR-IP12',
@@ -76,7 +76,7 @@ class InMemoryInventoryRepository implements InventoryRepository {
           reorderLevel: 3,
           quantity: 6,
         ),
-        Product(
+        const Product(
           id: 'p5',
           name: 'صيانة عامة',
           sku: 'SVC-GEN',

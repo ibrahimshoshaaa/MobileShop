@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import sqlite3
@@ -45,6 +46,7 @@ class SyncProtocol:
             status TEXT NOT NULL,
             result_json TEXT,
             error_code TEXT,
+            request_hash TEXT,
             created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
             PRIMARY KEY (tenant_id, branch_id, command_id)
         );
@@ -61,6 +63,10 @@ class SyncProtocol:
             ON sync_events(tenant_id, branch_id, seq);
         """)
         self.db.commit()
+        columns = {row[1] for row in self.db.execute("PRAGMA table_info(sync_receipts)").fetchall()}
+        if "request_hash" not in columns:
+            self.db.execute("ALTER TABLE sync_receipts ADD COLUMN request_hash TEXT")
+            self.db.commit()
         self._lock = RLock()
 
     def upload(self, envelopes: Iterable[dict], *, tenant_id: str, branch_id: str,
@@ -82,11 +88,15 @@ class SyncProtocol:
                 results.append({"command_id": command_id, "status": "CONFLICT", "error_code": "ACCOUNT_SCOPE_MISMATCH"})
                 continue
 
+            request_hash = hashlib.sha256(json.dumps(envelope, sort_keys=True, separators=(",", ":"), ensure_ascii=False, default=str).encode()).hexdigest()
             row = self.db.execute(
-                "SELECT status,result_json,error_code FROM sync_receipts WHERE tenant_id=? AND branch_id=? AND command_id=?",
+                "SELECT status,result_json,error_code,request_hash FROM sync_receipts WHERE tenant_id=? AND branch_id=? AND command_id=?",
                 (tenant_id, branch_id, command_id),
             ).fetchone()
             if row:
+                if row[3] and row[3] != request_hash:
+                    results.append({"command_id": command_id, "status": "CONFLICT", "error_code": "IDEMPOTENCY_KEY_REUSE"})
+                    continue
                 results.append({
                     "command_id": command_id, "status": row[0],
                     "result": json.loads(row[1]) if row[1] else None,
@@ -99,8 +109,8 @@ class SyncProtocol:
                 result = executor(envelope)
                 result_json = json.dumps(result, default=str, ensure_ascii=False, sort_keys=True)
                 self.db.execute(
-                    "INSERT INTO sync_receipts(tenant_id,branch_id,command_id,status,result_json) VALUES(?,?,?,?,?)",
-                    (tenant_id, branch_id, command_id, "APPLIED", result_json),
+                    "INSERT INTO sync_receipts(tenant_id,branch_id,command_id,status,result_json,request_hash) VALUES(?,?,?,?,?,?)",
+                    (tenant_id, branch_id, command_id, "APPLIED", result_json, request_hash),
                 )
                 self.db.execute(
                     "INSERT INTO sync_events(tenant_id,branch_id,command_id,event_type,payload_json) VALUES(?,?,?,?,?)",
@@ -112,8 +122,8 @@ class SyncProtocol:
                 code = exc.code
                 status = "CONFLICT" if code in _CONFLICT_CODES else "FAILED"
                 self.db.execute(
-                    "INSERT INTO sync_receipts(tenant_id,branch_id,command_id,status,error_code) VALUES(?,?,?,?,?)",
-                    (tenant_id, branch_id, command_id, status, code),
+                    "INSERT INTO sync_receipts(tenant_id,branch_id,command_id,status,error_code,request_hash) VALUES(?,?,?,?,?,?)",
+                    (tenant_id, branch_id, command_id, status, code, request_hash),
                 )
                 self.db.commit()
                 results.append({"command_id": command_id, "status": status, "error_code": code})

@@ -209,7 +209,7 @@
 ### P1 — CI verification
 
 - 🟡 الـworkflows التالية موجودة في `.github/workflows/`: `staging-client-e2e.yml`, `staging-smoke.yml`, `turso-integration.yml`, `turso-deep-integration.yml`, `turso-recovery-drill.yml`, `production-audit.yml`, `mobile-release.yml`.
-- 🟡 آخر تشغيل معروف على `main`: CI كان `139 passed / 1 failed` بسبب توقع اختبار concurrency لحالة `PROCESSING` بينما التنفيذ الحالي يعيد `RETRYABLE`، وتم تحديث الاختبار في فرع الإصلاح. Turso Integration نجح، بينما Turso Deep Integration فشل بسبب interactive transaction على Turso تم rollback له بعد idle timeout أثناء تزامن عاملين. Mobile Release فشل على Flutter analyzer في commit أقدم قبل إصلاحات const الأخيرة. Staging smoke فشل بـ401 في `/products`. لا تُعتبر أي من هذه بوابة Production خضراء حتى تشغيل CI جديد على فرع الإصلاح.
+- 🟢 Pull Request #15 على فرع الإصلاح: CI نجح بالكامل (Python + Flutter analyze + security)، وProduction audit نجح. آخر `main` قبل الإصلاح كان `139 passed / 1 failed` بسبب توقع اختبار concurrency لحالة `PROCESSING` بينما التنفيذ الحالي يعيد `RETRYABLE`؛ تم تحديث الاختبار. Turso Integration نجح على `main`، بينما Turso Deep Integration ما زال فاشلاً بسبب interactive transaction على Turso تم rollback له بعد idle timeout أثناء تزامن عاملين. Staging smoke القديم فشل بـ401 في `/products`، ولم يعد يعمل تلقائياً على `main` بعد تعديل الـtrigger.
 
 ### P1
 - ⬜ إكمال ERP accounting invariants.
@@ -239,8 +239,8 @@
 ## الحالة الحالية
 
 **Branch:** `fix/ci-staging-smoke-trigger`  
-**CI:** 🟡 pending — سيتم التحقق عبر Pull Request إلى `main`  
-**Tests:** 🟡 آخر run معروف: 139 passed / 1 failed؛ تم إصلاح توقع concurrency وإضافة اختبار Online Sales endpoint، ولم يُثبت CI الجديد بعد  
+**CI:** 🟢 PR #15 — Python + Flutter analyze + security passed  
+**Tests:** 🟢 PR #15 — Python tests passed، مع إضافة اختبار Online Sales endpoint  
 **Bandit:** 🟢 آخر run معروف passed  
 **pip-audit:** 🟢 آخر run معروف passed  
 **Production-ready:** ⬜ لا — يلزم CI جديد + staging/Turso operational verification  

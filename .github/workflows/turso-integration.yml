@@ -1,0 +1,104 @@
+name: Turso Integration
+
+on:
+  workflow_dispatch:
+  push:
+    branches: ["main", "release/complete-release-gates", "release/production-gates-audit"]
+
+permissions:
+  contents: read
+
+jobs:
+  turso:
+    runs-on: ubuntu-latest
+    env:
+      TURSO_DATABASE_URL: ${{ secrets.TURSO_DATABASE_URL }}
+      TURSO_AUTH_TOKEN: ${{ secrets.TURSO_AUTH_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install backend dependencies
+        run: python -m pip install -r backend/api_server/requirements.txt
+      - name: Compile project
+        run: python -m compileall -q backend shared tests
+      - name: Turso live persistence and transaction smoke test
+        run: |
+          python - <<'PY'
+          import os
+          import uuid
+          from decimal import Decimal
+
+          from backend.functions.services.durable_engine import DurableERPCommandEngine
+          from shared.contracts.commands import CommandContext
+          from shared.models.erp import Product
+
+          if not os.environ.get("TURSO_DATABASE_URL") or not os.environ.get("TURSO_AUTH_TOKEN"):
+              raise SystemExit("Missing TURSO_DATABASE_URL/TURSO_AUTH_TOKEN GitHub secrets")
+
+          run_id = uuid.uuid4().hex[:12]
+          product_id = f"ci-turso-{run_id}"
+          tenant = f"ci-tenant-{run_id}"
+          ctx = CommandContext(
+              f"ci-create-{run_id}",
+              "ci-user",
+              "ci-branch",
+              frozenset({"products.edit"}),
+              tenant,
+          )
+
+          a = DurableERPCommandEngine()
+          try:
+              a.transaction(lambda: a.create_product(
+                  ctx,
+                  Product(
+                      product_id,
+                      "CI Turso Probe",
+                      f"CI-{run_id}",
+                      "ACCESSORY",
+                      default_cost=Decimal("100"),
+                  ),
+              ))
+
+              b = DurableERPCommandEngine()
+              try:
+                  product = b.products.get(product_id)
+                  assert product is not None, "second worker could not read persisted Turso record"
+                  assert b.products.tenant_of(product_id) == tenant, "tenant metadata was not persisted"
+
+                  try:
+                      def fail_transaction():
+                          b.products.update(
+                              product_id,
+                              Product(
+                                  product_id,
+                                  "SHOULD-ROLLBACK",
+                                  f"CI-{run_id}",
+                                  "ACCESSORY",
+                                  default_cost=Decimal("100"),
+                              ),
+                          )
+                          raise RuntimeError("forced rollback")
+
+                      b.transaction(fail_transaction)
+                  except RuntimeError:
+                      pass
+                  else:
+                      raise AssertionError("forced rollback transaction unexpectedly succeeded")
+
+                  assert b.products.get(product_id).name == "CI Turso Probe", "rollback did not restore in-memory state"
+
+                  a2 = DurableERPCommandEngine()
+                  try:
+                      assert a2.products.get(product_id).name == "CI Turso Probe", "rollback leaked to Turso"
+                  finally:
+                      a2.close()
+
+                  print("TURSO_SMOKE_OK")
+              finally:
+                  b.close()
+          finally:
+              a.close()
+          PY

@@ -1,0 +1,21 @@
+name: Staging smoke
+
+on:
+  workflow_dispatch:
+  push:
+    branches: ["release/complete-release-gates", "release/production-gates-audit"]
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Run authenticated staging smoke
+        env:
+          STAGING_API_URL: ${{ secrets.STAGING_API_URL }}
+          STAGING_BEARER_TOKEN: ${{ secrets.STAGING_BEARER_TOKEN }}
+          STAGING_BRANCH_ID: ${{ secrets.STAGING_BRANCH_ID }}
+        run: python scripts/staging_smoke.py

@@ -1,0 +1,15 @@
+[project]
+name = "mobile-shop-erp-backend"
+version = "0.1.0"
+description = "Mobile Shop ERP backend domain contracts and services"
+requires-python = ">=3.11"
+dependencies = [
+  "fastapi>=0.110,<1.0",
+  "uvicorn[standard]>=0.29,<1.0",
+  "firebase-admin>=6.5,<7.0",
+  "libsql==0.1.11",
+]
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["tests"]

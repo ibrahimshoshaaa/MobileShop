@@ -175,9 +175,10 @@ class _HomePageState extends State<HomePage> {
   }
 
   Future<void> _openNewSale() async {
+    final navigator = Navigator.of(context);
     final repo = _salesRepo ?? await getSalesRepository();
     if (!mounted) return;
-    final created = await Navigator.of(context).push<bool>(
+    final created = await navigator.push<bool>(
       MaterialPageRoute(builder: (_) => NewSaleScreen(repository: repo)),
     );
     if (created == true) _load();

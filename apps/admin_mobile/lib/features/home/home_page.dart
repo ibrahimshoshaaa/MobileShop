@@ -625,8 +625,8 @@ class _NewSaleBanner extends StatelessWidget {
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
-                  children: const [
-                    Text('فانورة بيع جديدة',
+                  children: [
+                    const Text('فانورة بيع جديدة',
                         style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.w900)),
                     SizedBox(height: 4),
                     Text('موبايلات • إكسسوارات • قطع غيار • كروت',

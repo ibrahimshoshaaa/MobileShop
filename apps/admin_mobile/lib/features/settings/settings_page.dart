@@ -6,9 +6,15 @@ import 'package:share_plus/share_plus.dart';
 
 import 'about_page.dart';
 import 'backup_service.dart';
+import '../auth/auth_models.dart';
+import '../auth/auth_service.dart';
+import '../auth/login_page.dart';
 
 class SettingsPage extends StatefulWidget {
-  const SettingsPage({super.key});
+  const SettingsPage({super.key, this.onSessionChanged});
+
+  /// بيتنادى لما يتسجل دخول أو يتسجل خروج — عشان الـ Shell يحدّث الـ AppBar.
+  final void Function()? onSessionChanged;
 
   @override
   State<SettingsPage> createState() => _SettingsPageState();
@@ -16,6 +22,59 @@ class SettingsPage extends StatefulWidget {
 
 class _SettingsPageState extends State<SettingsPage> {
   bool _busy = false;
+  AccountSession? _session;
+
+  @override
+  void initState() {
+    super.initState();
+    _session = AuthService.instance.currentSession;
+  }
+
+  // ─── Auth ─────────────────────────────────────────────────────────────────
+
+  void _openLogin() {
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => LoginPage(
+          onLoggedIn: (session) {
+            Navigator.pop(context);
+            setState(() => _session = session);
+            widget.onSessionChanged?.call();
+          },
+        ),
+      ),
+    );
+  }
+
+  Future<void> _logout() async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => Directionality(
+        textDirection: TextDirection.rtl,
+        child: AlertDialog(
+          title: const Text('تسجيل الخروج'),
+          content: const Text(
+            'ستظل بياناتك المحلية كما هي على هذا الجهاز، '
+            'لكن لن يحدث أي مزامنة حتى تسجل الدخول مجددًا.',
+          ),
+          actions: [
+            TextButton(
+                onPressed: () => Navigator.pop(ctx, false),
+                child: const Text('إلغاء')),
+            FilledButton(
+                onPressed: () => Navigator.pop(ctx, true),
+                child: const Text('تسجيل الخروج')),
+          ],
+        ),
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+    await AuthService.instance.logout();
+    setState(() => _session = null);
+    widget.onSessionChanged?.call();
+  }
+
+  // ─── Backup ───────────────────────────────────────────────────────────────
 
   Future<void> _exportBackup() async {
     setState(() => _busy = true);
@@ -52,16 +111,23 @@ class _SettingsPageState extends State<SettingsPage> {
     if (!mounted) return;
     final confirmed = await showDialog<bool>(
       context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('استيراد نسخة احتياطية'),
-        content: const Text(
-          'سيتم استبدال كل البيانات الحالية على هذا الجهاز ببيانات الملف المختار. '
-          'هذا الإجراء لا يمكن التراجع عنه. هل تريد المتابعة؟',
+      builder: (ctx) => Directionality(
+        textDirection: TextDirection.rtl,
+        child: AlertDialog(
+          title: const Text('استيراد نسخة احتياطية'),
+          content: const Text(
+            'سيتم استبدال كل البيانات الحالية على هذا الجهاز ببيانات الملف المختار. '
+            'هذا الإجراء لا يمكن التراجع عنه. هل تريد المتابعة؟',
+          ),
+          actions: [
+            TextButton(
+                onPressed: () => Navigator.pop(ctx, false),
+                child: const Text('إلغاء')),
+            FilledButton(
+                onPressed: () => Navigator.pop(ctx, true),
+                child: const Text('استبدال البيانات')),
+          ],
         ),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('إلغاء')),
-          FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('استبدال البيانات')),
-        ],
       ),
     );
     if (confirmed != true) return;
@@ -73,14 +139,21 @@ class _SettingsPageState extends State<SettingsPage> {
       if (!mounted) return;
       await showDialog<void>(
         context: context,
-        builder: (ctx) => AlertDialog(
-          title: const Text('تم الاستيراد بنجاح'),
-          content: Text(
-            'تم استعادة ${importResult.recordCount} سجل من نسخة بتاريخ '
-            '${importResult.exportedAt.toLocal().toString().split('.').first}.\n\n'
-            'أعد فتح التطبيق الآن لتحميل البيانات المستعادة في كل الشاشات.',
+        builder: (ctx) => Directionality(
+          textDirection: TextDirection.rtl,
+          child: AlertDialog(
+            title: const Text('تم الاستيراد بنجاح'),
+            content: Text(
+              'تم استعادة ${importResult.recordCount} سجل من نسخة بتاريخ '
+              '${importResult.exportedAt.toLocal().toString().split('.').first}.\n\n'
+              'أعد فتح التطبيق الآن لتحميل البيانات المستعادة في كل الشاشات.',
+            ),
+            actions: [
+              FilledButton(
+                  onPressed: () => Navigator.pop(ctx),
+                  child: const Text('حسنًا'))
+            ],
           ),
-          actions: [FilledButton(onPressed: () => Navigator.pop(ctx), child: const Text('حسنًا'))],
         ),
       );
     } on FormatException catch (e) {
@@ -96,49 +169,127 @@ class _SettingsPageState extends State<SettingsPage> {
 
   void _showSnack(String message, {bool isError = false}) {
     ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(message), backgroundColor: isError ? Colors.red.shade700 : null),
+      SnackBar(
+          content: Text(message),
+          backgroundColor: isError ? Colors.red.shade700 : null),
     );
   }
 
-  void _showCloudAccountInfo() {
-    showDialog<void>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('الحساب السحابي'),
-        content: const Text(
-          'ربط الحساب السحابي (تسجيل الدخول ومزامنة الفروع مع السيرفر المركزي) '
-          'قيد التطوير حاليًا ولم يتم تفعيله بعد. التطبيق يعمل بالكامل محليًا على '
-          'هذا الجهاز إلى أن يتم إطلاق هذه الميزة.',
-        ),
-        actions: [FilledButton(onPressed: () => Navigator.pop(ctx), child: const Text('حسنًا'))],
-      ),
-    );
-  }
+  // ─── Build ────────────────────────────────────────────────────────────────
 
   @override
   Widget build(BuildContext context) {
+    final isOnline = _session != null && _session!.token.isNotEmpty;
+
     return Stack(
       children: [
         ListView(
           padding: const EdgeInsets.fromLTRB(16, 8, 16, 28),
           children: [
-            const Text('إعدادات النظام', style: TextStyle(fontSize: 24, fontWeight: FontWeight.w900)),
+            const Text('إعدادات النظام',
+                style: TextStyle(fontSize: 24, fontWeight: FontWeight.w900)),
             const SizedBox(height: 6),
-            const Text('النسخ الاحتياطي، الحساب السحابي، ومعلومات التطبيق.', style: TextStyle(color: Colors.black54)),
+            const Text('الحساب السحابي، النسخ الاحتياطي، ومعلومات التطبيق.',
+                style: TextStyle(color: Colors.black54)),
             const SizedBox(height: 18),
 
+            // ── الحساب السحابي ─────────────────────────────────────────────
             const _SectionLabel('الحساب السحابي'),
             Card(
-              child: ListTile(
-                leading: const Icon(Icons.cloud_off_outlined),
-                title: const Text('غير متصل', style: TextStyle(fontWeight: FontWeight.bold)),
-                subtitle: const Text('التطبيق يعمل محليًا فقط — ربط الحساب السحابي قيد التطوير'),
-                trailing: const _SoonBadge(),
-                onTap: _showCloudAccountInfo,
+              child: Column(
+                children: [
+                  // مؤشر الحالة
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 16, vertical: 12),
+                    decoration: BoxDecoration(
+                      color: isOnline
+                          ? const Color(0xFFE8F5E9)
+                          : const Color(0xFFF5F5F5),
+                      borderRadius: const BorderRadius.vertical(
+                          top: Radius.circular(18)),
+                    ),
+                    child: Row(children: [
+                      Icon(
+                        isOnline
+                            ? Icons.cloud_done_rounded
+                            : Icons.cloud_off_rounded,
+                        color: isOnline
+                            ? Colors.green.shade700
+                            : Colors.black45,
+                        size: 20,
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              isOnline ? 'متصل بالسيرفر' : 'غير متصل (Offline)',
+                              style: TextStyle(
+                                fontWeight: FontWeight.bold,
+                                color: isOnline
+                                    ? Colors.green.shade800
+                                    : Colors.black87,
+                              ),
+                            ),
+                            if (isOnline) ...[
+                              const SizedBox(height: 2),
+                              Text(
+                                '${_session!.displayName} • ${_session!.branchName}',
+                                style: const TextStyle(
+                                    fontSize: 12, color: Colors.black54),
+                              ),
+                              Text(
+                                _session!.email,
+                                style: const TextStyle(
+                                    fontSize: 11, color: Colors.black38),
+                              ),
+                            ] else
+                              const Text(
+                                'البيانات تُحفظ محليًا على هذا الجهاز فقط',
+                                style: TextStyle(
+                                    fontSize: 12, color: Colors.black45),
+                              ),
+                          ],
+                        ),
+                      ),
+                    ]),
+                  ),
+                  const Divider(height: 1),
+                  if (!isOnline)
+                    ListTile(
+                      leading: const Icon(Icons.login_rounded),
+                      title: const Text('تسجيل الدخول',
+                          style: TextStyle(fontWeight: FontWeight.bold)),
+                      subtitle: const Text(
+                          'ربط بالسيرفر لمزامنة البيانات مع الفروع'),
+                      trailing: const Icon(Icons.chevron_left),
+                      onTap: _openLogin,
+                    )
+                  else ...[
+                    ListTile(
+                      leading: const Icon(Icons.swap_horiz_rounded),
+                      title: const Text('تغيير الفرع'),
+                      subtitle: Text(_session!.branchName),
+                      trailing: const Icon(Icons.chevron_left),
+                      onTap: _openLogin,
+                    ),
+                    const Divider(height: 1),
+                    ListTile(
+                      leading: const Icon(Icons.logout_rounded,
+                          color: Colors.red),
+                      title: const Text('تسجيل الخروج',
+                          style: TextStyle(color: Colors.red)),
+                      onTap: _logout,
+                    ),
+                  ],
+                ],
               ),
             ),
             const SizedBox(height: 18),
 
+            // ── النسخ الاحتياطي ────────────────────────────────────────────
             const _SectionLabel('النسخ الاحتياطي'),
             Card(
               child: Column(
@@ -146,7 +297,8 @@ class _SettingsPageState extends State<SettingsPage> {
                   ListTile(
                     leading: const Icon(Icons.upload_outlined),
                     title: const Text('تصدير نسخة احتياطية'),
-                    subtitle: const Text('حفظ كل البيانات الحالية في ملف يمكن مشاركته أو حفظه'),
+                    subtitle: const Text(
+                        'حفظ كل البيانات الحالية في ملف يمكن مشاركته أو حفظه'),
                     trailing: const Icon(Icons.chevron_left),
                     onTap: _busy ? null : _exportBackup,
                   ),
@@ -154,7 +306,8 @@ class _SettingsPageState extends State<SettingsPage> {
                   ListTile(
                     leading: const Icon(Icons.download_outlined),
                     title: const Text('استيراد نسخة احتياطية'),
-                    subtitle: const Text('استعادة البيانات من ملف نسخة احتياطية سابق'),
+                    subtitle: const Text(
+                        'استعادة البيانات من ملف نسخة احتياطية سابق'),
                     trailing: const Icon(Icons.chevron_left),
                     onTap: _busy ? null : _importBackup,
                   ),
@@ -163,12 +316,14 @@ class _SettingsPageState extends State<SettingsPage> {
             ),
             const SizedBox(height: 18),
 
+            // ── عن التطبيق ─────────────────────────────────────────────────
             const _SectionLabel('عن التطبيق'),
             Card(
               child: ListTile(
                 leading: const Icon(Icons.info_outline),
                 title: const Text('عن التطبيق'),
-                subtitle: const Text('الإصدار، طريقة تخزين البيانات، ووضع الاتصال'),
+                subtitle: const Text(
+                    'الإصدار، طريقة تخزين البيانات، ووضع الاتصال'),
                 trailing: const Icon(Icons.chevron_left),
                 onTap: () => Navigator.of(context).push(
                   MaterialPageRoute(builder: (_) => const AboutPage()),
@@ -194,20 +349,10 @@ class _SectionLabel extends StatelessWidget {
   @override
   Widget build(BuildContext context) => Padding(
         padding: const EdgeInsets.fromLTRB(4, 0, 4, 8),
-        child: Text(text, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: Colors.black54)),
-      );
-}
-
-class _SoonBadge extends StatelessWidget {
-  const _SoonBadge();
-
-  @override
-  Widget build(BuildContext context) => Container(
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-        decoration: BoxDecoration(
-          color: const Color(0xFFF3E8CC),
-          borderRadius: BorderRadius.circular(999),
-        ),
-        child: const Text('قريبًا', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Color(0xFF0B1220))),
+        child: Text(text,
+            style: const TextStyle(
+                fontSize: 13,
+                fontWeight: FontWeight.bold,
+                color: Colors.black54)),
       );
 }

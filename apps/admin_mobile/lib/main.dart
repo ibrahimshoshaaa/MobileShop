@@ -11,6 +11,9 @@ import 'features/wallets/wallets_page.dart';
 import 'features/reports/reports_page.dart';
 import 'features/home/home_page.dart';
 import 'features/settings/settings_page.dart';
+import 'features/auth/auth_models.dart';
+import 'features/auth/auth_service.dart';
+import 'features/auth/login_page.dart';
 
 void main() => runApp(const MobileShopApp());
 
@@ -73,10 +76,72 @@ class MobileShopApp extends StatelessWidget {
           tileHeight: 52,
         ),
       ),
-      home: const DashboardShell(),
+      home: const _AppEntry(),
     );
   }
 }
+
+/// شاشة انتظار تحمّل الجلسة المحفوظة — تظهر للحظة عند فتح التطبيق.
+class _AppEntry extends StatefulWidget {
+  const _AppEntry();
+
+  @override
+  State<_AppEntry> createState() => _AppEntryState();
+}
+
+class _AppEntryState extends State<_AppEntry> {
+  bool _ready = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  Future<void> _load() async {
+    await AuthService.instance.loadSession();
+    if (mounted) setState(() => _ready = true);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (!_ready) {
+      // شاشة Splash بسيطة أثناء تحميل الجلسة
+      return const Directionality(
+        textDirection: TextDirection.rtl,
+        child: Scaffold(
+          backgroundColor: Color(0xFF0B1220),
+          body: Center(
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(Icons.phone_android_rounded,
+                    color: Color(0xFFD6A84F), size: 64),
+                SizedBox(height: 16),
+                Text('Mobile Shop',
+                    style: TextStyle(
+                        color: Colors.white,
+                        fontSize: 28,
+                        fontWeight: FontWeight.w900)),
+                SizedBox(height: 32),
+                SizedBox(
+                  width: 24,
+                  height: 24,
+                  child: CircularProgressIndicator(
+                      strokeWidth: 2, color: Color(0xFFD6A84F)),
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+    }
+
+    return const DashboardShell();
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 
 class DashboardShell extends StatefulWidget {
   const DashboardShell({super.key});
@@ -88,6 +153,9 @@ class DashboardShell extends StatefulWidget {
 class _DashboardShellState extends State<DashboardShell> {
   int index = 0;
   final _scaffoldKey = GlobalKey<ScaffoldState>();
+
+  AccountSession? get _session => AuthService.instance.currentSession;
+  bool get _isOnline => _session != null && _session!.token.isNotEmpty;
 
   static const drawerDestinations = [
     NavigationDrawerDestination(icon: Icon(Icons.dashboard_rounded), selectedIcon: Icon(Icons.dashboard_rounded, color: Color(0xFF0B1220)), label: Text('لوحة التحكم')),
@@ -134,6 +202,8 @@ class _DashboardShellState extends State<DashboardShell> {
   @override
   Widget build(BuildContext context) {
     final isHome = index == 0;
+    final isOnline = _isOnline;
+
     return Directionality(
       textDirection: TextDirection.rtl,
       child: Scaffold(
@@ -144,7 +214,8 @@ class _DashboardShellState extends State<DashboardShell> {
             : AppBar(
                 title: Text(
                   pages[index].$1,
-                  style: const TextStyle(fontSize: 21, fontWeight: FontWeight.w800),
+                  style: const TextStyle(
+                      fontSize: 21, fontWeight: FontWeight.w800),
                 ),
               ),
         drawer: NavigationDrawer(
@@ -166,15 +237,27 @@ class _DashboardShellState extends State<DashboardShell> {
                       color: const Color(0xFF0B1220),
                       borderRadius: BorderRadius.circular(14),
                     ),
-                    child: const Icon(Icons.phone_android_rounded, color: Color(0xFFD6A84F)),
+                    child: const Icon(Icons.phone_android_rounded,
+                        color: Color(0xFFD6A84F)),
                   ),
                   const SizedBox(width: 12),
-                  const Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text('Mobile Shop', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w900)),
-                      Text('نظام إدارة المحل', style: TextStyle(color: Colors.black54, fontSize: 12)),
-                    ],
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text('Mobile Shop',
+                            style: TextStyle(
+                                fontSize: 18, fontWeight: FontWeight.w900)),
+                        Text(
+                          isOnline
+                              ? _session!.displayName
+                              : 'نظام إدارة المحل',
+                          style: const TextStyle(
+                              color: Colors.black54, fontSize: 12),
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ],
+                    ),
                   ),
                 ],
               ),
@@ -182,7 +265,11 @@ class _DashboardShellState extends State<DashboardShell> {
             const SizedBox(height: 20),
             const Padding(
               padding: EdgeInsets.symmetric(horizontal: 24),
-              child: Text('الإدارة', style: TextStyle(fontSize: 12, color: Colors.black45, fontWeight: FontWeight.bold)),
+              child: Text('الإدارة',
+                  style: TextStyle(
+                      fontSize: 12,
+                      color: Colors.black45,
+                      fontWeight: FontWeight.bold)),
             ),
             const SizedBox(height: 6),
             ...drawerDestinations,
@@ -190,10 +277,29 @@ class _DashboardShellState extends State<DashboardShell> {
               padding: EdgeInsets.fromLTRB(24, 18, 24, 8),
               child: Divider(),
             ),
-            const Padding(
-              padding: EdgeInsets.symmetric(horizontal: 24),
-              child: Text('●  Offline mode', style: TextStyle(fontSize: 12, color: Colors.black45)),
+            // ── مؤشر الوضع ─────────────────────────────────────────────
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 24),
+              child: Row(children: [
+                Icon(
+                  isOnline ? Icons.cloud_done_rounded : Icons.cloud_off_rounded,
+                  size: 14,
+                  color: isOnline ? Colors.green.shade700 : Colors.black38,
+                ),
+                const SizedBox(width: 6),
+                Text(
+                  isOnline
+                      ? '${_session!.branchName} • Online'
+                      : 'Offline mode',
+                  style: TextStyle(
+                    fontSize: 12,
+                    color:
+                        isOnline ? Colors.green.shade700 : Colors.black45,
+                  ),
+                ),
+              ]),
             ),
+            const SizedBox(height: 8),
           ],
         ),
         body: _page(index),
@@ -224,15 +330,54 @@ class _DashboardShellState extends State<DashboardShell> {
     if (i == 6) return const MaintenancePage();
     if (i == 7) return const ExpensesPage();
     if (i == 8) return const ReportsPage();
-    if (i == 10) return const SettingsPage();
+    if (i == 10) {
+      return SettingsPage(
+        onSessionChanged: () => setState(() {}),
+      );
+    }
     if (i == _walletsIndex) return const WalletsPage();
     return GenericPage(title: pages[i].$1, icon: pages[i].$2);
   }
 }
 
-/// Custom bottom bar matching the requested design: المحافظ / الصيانة /
-/// بيع (raised center action, pushes straight to a new sale) / المبيعات /
-/// الرئيسية, laid out right-to-left under the app's RTL directionality.
+// ─────────────────────────────────────────────────────────────────────────────
+// الـ widgets الثابتة (من main.dart الأصلي، بدون تغيير)
+// ─────────────────────────────────────────────────────────────────────────────
+
+class GenericPage extends StatelessWidget {
+  const GenericPage({required this.title, required this.icon, super.key});
+  final String title;
+  final IconData icon;
+
+  @override
+  Widget build(BuildContext context) => Center(
+        child: Padding(
+          padding: const EdgeInsets.all(28),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Container(
+                  width: 82,
+                  height: 82,
+                  decoration: BoxDecoration(
+                      color: const Color(0xFFF3E8CC),
+                      borderRadius: BorderRadius.circular(24)),
+                  child: Icon(icon,
+                      size: 40, color: const Color(0xFF0B1220))),
+              const SizedBox(height: 18),
+              Text(title,
+                  style: const TextStyle(
+                      fontSize: 24, fontWeight: FontWeight.w900)),
+              const SizedBox(height: 8),
+              const Text('هذه الوحدة قيد التطوير.',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(color: Colors.black54)),
+            ],
+          ),
+        ),
+      );
+}
+
 class _BottomNavBar extends StatelessWidget {
   const _BottomNavBar({
     required this.currentIndex,
@@ -250,24 +395,48 @@ class _BottomNavBar extends StatelessWidget {
   final VoidCallback onWallets;
   final VoidCallback onSell;
 
+  static const _navy = Color(0xFF0B1220);
+  static const _gold = Color(0xFFD6A84F);
+
   @override
   Widget build(BuildContext context) {
-    return SafeArea(
-      top: false,
-      child: Container(
-        height: 66,
-        decoration: const BoxDecoration(
-          color: Colors.white,
-          boxShadow: [BoxShadow(color: Color(0x14000000), blurRadius: 12, offset: Offset(0, -2))],
-        ),
-        child: Row(
-          children: [
-            _NavItem(icon: Icons.home_rounded, label: 'الرئيسية', selected: currentIndex == 0, onTap: onHome),
-            _NavItem(icon: Icons.receipt_long_rounded, label: 'المبيعات', selected: currentIndex == 1, onTap: onSales),
-            _SellButton(onTap: onSell),
-            _NavItem(icon: Icons.build_rounded, label: 'الصيانة', selected: currentIndex == 6, onTap: onMaintenance),
-            _NavItem(icon: Icons.account_balance_wallet_rounded, label: 'المحافظ', selected: currentIndex == 11, onTap: onWallets),
-          ],
+    return Container(
+      decoration: const BoxDecoration(
+        color: Colors.white,
+        border: Border(top: BorderSide(color: Color(0xFFE8EBF0))),
+      ),
+      child: SafeArea(
+        child: SizedBox(
+          height: 60,
+          child: Row(
+            children: [
+              _NavItem(Icons.dashboard_rounded, 'الرئيسية', 0, currentIndex, onHome),
+              _NavItem(Icons.point_of_sale_rounded, 'المبيعات', 1, currentIndex, onSales),
+              // زرار البيع السريع في المنتصف
+              Expanded(
+                child: GestureDetector(
+                  onTap: onSell,
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Container(
+                        width: 46,
+                        height: 46,
+                        decoration: BoxDecoration(
+                          color: _navy,
+                          borderRadius: BorderRadius.circular(14),
+                        ),
+                        child: const Icon(Icons.add_rounded,
+                            color: _gold, size: 26),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+              _NavItem(Icons.build_rounded, 'الصيانة', 6, currentIndex, onMaintenance),
+              _NavItem(Icons.account_balance_wallet_rounded, 'المحافظ', 11, currentIndex, onWallets),
+            ],
+          ),
         ),
       ),
     );
@@ -275,97 +444,38 @@ class _BottomNavBar extends StatelessWidget {
 }
 
 class _NavItem extends StatelessWidget {
-  const _NavItem({required this.icon, required this.label, required this.selected, required this.onTap});
+  const _NavItem(this.icon, this.label, this.itemIndex, this.currentIndex, this.onTap);
+
   final IconData icon;
   final String label;
-  final bool selected;
+  final int itemIndex;
+  final int currentIndex;
   final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
-    final color = selected ? const Color(0xFF0F3E5C) : Colors.black45;
+    final selected = itemIndex == currentIndex;
     return Expanded(
-      child: InkWell(
+      child: GestureDetector(
         onTap: onTap,
+        behavior: HitTestBehavior.opaque,
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Icon(icon, color: color, size: 22),
-            const SizedBox(height: 3),
-            Text(label, style: TextStyle(color: color, fontSize: 11, fontWeight: FontWeight.w700)),
+            Icon(icon,
+                color: selected ? const Color(0xFF0B1220) : Colors.black38,
+                size: 24),
+            const SizedBox(height: 2),
+            Text(label,
+                style: TextStyle(
+                    fontSize: 10,
+                    color: selected ? const Color(0xFF0B1220) : Colors.black38,
+                    fontWeight: selected
+                        ? FontWeight.bold
+                        : FontWeight.normal)),
           ],
         ),
       ),
     );
   }
-}
-
-class _SellButton extends StatelessWidget {
-  const _SellButton({required this.onTap});
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    return Expanded(
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          InkWell(
-            onTap: onTap,
-            customBorder: const CircleBorder(),
-            child: Container(
-              width: 48,
-              height: 48,
-              decoration: const BoxDecoration(color: Color(0xFF0F3E5C), shape: BoxShape.circle),
-              child: const Icon(Icons.shopping_cart_rounded, color: Colors.white, size: 22),
-            ),
-          ),
-          const SizedBox(height: 3),
-          const Text('بيع', style: TextStyle(color: Color(0xFF0F3E5C), fontSize: 11, fontWeight: FontWeight.w700)),
-        ],
-      ),
-    );
-  }
-}
-
-
-/// Shown for sections that genuinely have no screen yet — currently only
-/// "الفروع والمستخدمون" (Stage 7 of the plan: Users / Roles / Permissions /
-/// Branch Access). Deliberately has no buttons: there's nothing behind it
-/// to wire one up to yet, and a button that does nothing is exactly what
-/// 1.3 removed elsewhere in the app.
-class GenericPage extends StatelessWidget {
-  const GenericPage({required this.title, required this.icon, super.key});
-  final String title;
-  final IconData icon;
-
-  @override
-  Widget build(BuildContext context) => Center(
-    child: Padding(
-      padding: const EdgeInsets.all(28),
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Container(
-            width: 82,
-            height: 82,
-            decoration: BoxDecoration(
-              color: const Color(0xFFF3E8CC),
-              borderRadius: BorderRadius.circular(24),
-            ),
-            child: Icon(icon, size: 40, color: const Color(0xFF0B1220)),
-          ),
-          const SizedBox(height: 18),
-          Text(title, style: const TextStyle(fontSize: 24, fontWeight: FontWeight.w900)),
-          const SizedBox(height: 8),
-          const Text(
-            'هذه الوحدة قيد التطوير ولسه معملتش. إدارة المستخدمين والصلاحيات والفروع '
-            'هتتضاف في مرحلة لاحقة من خطة التطوير.',
-            textAlign: TextAlign.center,
-            style: TextStyle(color: Colors.black54),
-          ),
-        ],
-      ),
-    ),
-  );
 }

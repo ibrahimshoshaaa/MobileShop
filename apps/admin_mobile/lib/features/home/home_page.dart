@@ -615,11 +615,16 @@ class _NewSaleBanner extends StatelessWidget {
           padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 18),
           child: Row(
             children: [
-              Container(
+              const SizedBox(
                 width: 46,
                 height: 46,
-                decoration: BoxDecoration(color: Colors.white24, borderRadius: BorderRadius.circular(14)),
-                child: const Icon(Icons.shopping_cart_rounded, color: Colors.white),
+                child: DecoratedBox(
+                  decoration: BoxDecoration(
+                    color: Colors.white24,
+                    borderRadius: BorderRadius.all(Radius.circular(14)),
+                  ),
+                  child: Icon(Icons.shopping_cart_rounded, color: Colors.white),
+                ),
               ),
               const SizedBox(width: 14),
               Expanded(
@@ -628,8 +633,8 @@ class _NewSaleBanner extends StatelessWidget {
                   children: [
                     const Text('فانورة بيع جديدة',
                         style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.w900)),
-                    SizedBox(height: 4),
-                    Text('موبايلات • إكسسوارات • قطع غيار • كروت',
+                    const SizedBox(height: 4),
+                    const Text('موبايلات • إكسسوارات • قطع غيار • كروت',
                         style: TextStyle(color: Colors.white70, fontSize: 11)),
                   ],
                 ),

@@ -334,7 +334,7 @@ class _SettingsPageState extends State<SettingsPage> {
         ),
         if (_busy)
           Container(
-            color: Colors.black.withValues(alpha: 0.06),
+            color: Colors.black.withOpacity(0.06),
             child: const Center(child: CircularProgressIndicator()),
           ),
       ],

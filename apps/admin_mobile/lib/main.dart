@@ -13,7 +13,6 @@ import 'features/home/home_page.dart';
 import 'features/settings/settings_page.dart';
 import 'features/auth/auth_models.dart';
 import 'features/auth/auth_service.dart';
-import 'features/auth/login_page.dart';
 
 void main() => runApp(const MobileShopApp());
 

@@ -83,7 +83,9 @@ class AuthService {
     required String password,
     required Future<BranchInfo> Function(List<BranchInfo>) onSelectBranch,
   }) async {
-    final base = apiUrl.trimRight('/');
+    final base = apiUrl.endsWith('/')
+        ? apiUrl.substring(0, apiUrl.length - 1)
+        : apiUrl;
 
     // 1) Login
     final loginData = await _post('$base/auth/login', {

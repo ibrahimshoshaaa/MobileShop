@@ -32,10 +32,10 @@ class AboutPage extends StatelessWidget {
             child: Text('Mobile Shop', style: TextStyle(fontSize: 22, fontWeight: FontWeight.w900)),
           ),
           const SizedBox(height: 4),
-          Center(
+          const Center(
             child: Text(
               'الإصدار $appVersion (build $appBuildNumber)',
-              style: const TextStyle(color: Colors.black54),
+              style: TextStyle(color: Colors.black54),
             ),
           ),
           const SizedBox(height: 24),

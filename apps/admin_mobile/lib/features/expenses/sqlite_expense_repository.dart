@@ -72,7 +72,7 @@ class SqliteExpenseRepository implements ExpenseRepository {
         'note': expense.note,
       },
     );
-    final walletId = WalletIdX.tryFromWireValue(method.wireValue);
+    final walletId = BuiltinWallets.tryFromWireValue(method.wireValue)?.id;
     if (walletId != null) {
       final wallets = await getWalletRepository();
       await wallets.postAuto(

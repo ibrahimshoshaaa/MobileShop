@@ -114,7 +114,7 @@ class _HomePageState extends State<HomePage> {
     final expensesToday = results[1] as List<Expense>;
     final tickets = results[2] as List<MaintenanceTicket>;
     final products = results[3] as List<Product>;
-    final balances = results[4] as Map<WalletId, double>;
+    final balances = results[4] as Map<String, double>;
 
     final costById = {for (final p in products) p.id: p.defaultCost};
 
@@ -166,8 +166,8 @@ class _HomePageState extends State<HomePage> {
       salesTotalToday: salesTotalToday,
       salesCountToday: salesToday.length,
       expensesTotalToday: expensesTotalToday,
-      cashBalance: balances[WalletId.cash] ?? 0,
-      walletBalance: balances[WalletId.wallet] ?? 0,
+      cashBalance: balances[BuiltinWallets.cash.id] ?? 0,
+      walletBalance: balances[BuiltinWallets.wallet.id] ?? 0,
       customerDebt: customerDebt,
       maintenanceOpenCount: maintenanceOpenCount,
       recentOps: recentOps.take(8).toList(),

@@ -1,0 +1,61 @@
+name: Turso recovery drill
+
+on:
+  workflow_dispatch:
+  push:
+    branches: ["release/production-gates-audit"]
+
+permissions:
+  contents: read
+
+jobs:
+  pitr:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Turso CLI
+        run: curl -sSfL https://get.tur.so/install.sh | bash
+      - name: Validate recovery configuration
+        env:
+          TURSO_API_TOKEN: ${{ secrets.TURSO_API_TOKEN }}
+          TURSO_ORG: ibrahimshoshaaa
+          TURSO_SOURCE_DB: mobile-shop-staging
+        run: |
+          set -euo pipefail
+          test -n "$TURSO_API_TOKEN"
+          test -n "$TURSO_ORG"
+          test -n "$TURSO_SOURCE_DB"
+      - name: Validate Turso Platform API token
+        env:
+          TURSO_API_TOKEN: ${{ secrets.TURSO_API_TOKEN }}
+        run: |
+          set -euo pipefail
+          response="$(curl -sS -w '\n%{http_code}' \
+            -H "Authorization: Bearer $TURSO_API_TOKEN" \
+            https://api.turso.tech/v1/auth/validate)"
+          status="$(printf '%s\n' "$response" | tail -n 1)"
+          body="$(printf '%s\n' "$response" | sed '$d')"
+          if [ "$status" != "200" ]; then
+            echo "Turso Platform API token validation failed (HTTP $status)."
+            printf '%s\n' "$body"
+            exit 1
+          fi
+          echo "TURSO_PLATFORM_API_TOKEN_OK"
+      - name: Restore source to a disposable point-in-time database
+        env:
+          TURSO_API_TOKEN: ${{ secrets.TURSO_API_TOKEN }}
+          TURSO_SOURCE_DB: mobile-shop-staging
+        run: |
+          set -euo pipefail
+          export PATH="$HOME/.turso:$PATH"
+          command -v turso
+          timestamp="$(date -u -d '2 minutes ago' '+%Y-%m-%dT%H:%M:%SZ')"
+          target="mobile-shop-recovery-${GITHUB_RUN_ID}"
+          cleanup() {
+            turso db destroy "$target" --yes >/dev/null 2>&1 || true
+          }
+          trap cleanup EXIT
+          export TURSO_API_TOKEN
+          turso db create "$target" --from-db "$TURSO_SOURCE_DB" --timestamp "$timestamp" --wait
+          turso db shell "$target" "PRAGMA integrity_check;" | grep -q "ok"
+          echo "TURSO_PITR_RECOVERY_OK"

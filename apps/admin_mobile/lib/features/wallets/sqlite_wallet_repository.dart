@@ -15,7 +15,7 @@ class SqliteWalletRepository implements WalletRepository {
 
   WalletTransaction _toTx(Map<String, dynamic> payload) => WalletTransaction(
         id: payload['id'] as String,
-        walletId: WalletIdX.fromWireValue(payload['wallet_id'] as String),
+        walletId: payload['wallet_id'] as String,
         type: WalletTxTypeX.fromWireValue(payload['type'] as String),
         amount: (payload['amount'] as num).toDouble(),
         note: payload['note'] as String?,
@@ -24,7 +24,7 @@ class SqliteWalletRepository implements WalletRepository {
 
   Map<String, dynamic> _toPayload(WalletTransaction t) => {
         'id': t.id,
-        'wallet_id': t.walletId.wireValue,
+        'wallet_id': t.walletId,
         'type': t.type.wireValue,
         'amount': t.amount,
         'note': t.note,
@@ -39,9 +39,9 @@ class SqliteWalletRepository implements WalletRepository {
   }
 
   @override
-  Future<Map<WalletId, double>> getBalances() async {
+  Future<Map<String, double>> getBalances() async {
     final txs = await _all();
-    final balances = {for (final w in WalletId.values) w: 0.0};
+    final balances = {for (final w in BuiltinWallets.all) w.id: 0.0};
     for (final t in txs) {
       balances[t.walletId] = (balances[t.walletId] ?? 0) + t.amount;
     }
@@ -49,14 +49,14 @@ class SqliteWalletRepository implements WalletRepository {
   }
 
   @override
-  Future<List<WalletTransaction>> listTransactions({WalletId? walletId, int limit = 100}) async {
+  Future<List<WalletTransaction>> listTransactions({String? walletId, int limit = 100}) async {
     final txs = await _all();
     final filtered = walletId == null ? txs : txs.where((t) => t.walletId == walletId).toList();
     return filtered.take(limit).toList(growable: false);
   }
 
   Future<WalletTransaction> _post({
-    required WalletId walletId,
+    required String walletId,
     required double signedAmount,
     required WalletTxType type,
     String? note,
@@ -74,13 +74,13 @@ class SqliteWalletRepository implements WalletRepository {
   }
 
   @override
-  Future<WalletTransaction> deposit({required WalletId walletId, required double amount, String? note}) async {
+  Future<WalletTransaction> deposit({required String walletId, required double amount, String? note}) async {
     if (amount <= 0) throw WalletException('قيمة الإيداع يجب أن تكون أكبر من صفر.');
     return _post(walletId: walletId, signedAmount: amount, type: WalletTxType.deposit, note: note);
   }
 
   @override
-  Future<WalletTransaction> withdraw({required WalletId walletId, required double amount, String? note}) async {
+  Future<WalletTransaction> withdraw({required String walletId, required double amount, String? note}) async {
     if (amount <= 0) throw WalletException('قيمة السحب يجب أن تكون أكبر من صفر.');
     final balances = await getBalances();
     final current = balances[walletId] ?? 0;
@@ -92,7 +92,7 @@ class SqliteWalletRepository implements WalletRepository {
 
   @override
   Future<WalletTransaction> postAuto({
-    required WalletId walletId,
+    required String walletId,
     required double signedAmount,
     required WalletTxType type,
     String? note,

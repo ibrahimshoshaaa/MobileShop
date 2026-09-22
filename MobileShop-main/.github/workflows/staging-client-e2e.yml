@@ -1,0 +1,25 @@
+name: Staging client E2E
+
+on:
+  workflow_dispatch:
+  push:
+    branches: ["release/production-gates-audit"]
+
+permissions:
+  contents: read
+
+jobs:
+  client-e2e:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Run authenticated desktop-client E2E
+        env:
+          STAGING_API_URL: ${{ secrets.STAGING_API_URL }}
+          STAGING_BEARER_TOKEN: ${{ secrets.STAGING_BEARER_TOKEN }}
+          STAGING_BRANCH_ID: ${{ secrets.STAGING_BRANCH_ID }}
+          PYTHONPATH: .
+        run: python scripts/staging_client_e2e.py

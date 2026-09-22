@@ -1,39 +1,90 @@
 import 'package:flutter/foundation.dart';
+import '../inventory/local_store.dart';
 
-/// The two physical/logical money pools the app tracks a running balance
-/// for. Deliberately reuses the same wire values as PaymentMethod
-/// (CASH/WALLET) in sale_models.dart so a sale or expense paid by cash or
-/// wallet can post straight into the matching ledger without a mapping
-/// table. Card settles to a bank account and credit is a receivable, not
-/// money on hand, so neither has a wallet balance here.
-enum WalletId { cash, wallet }
+/// A wallet — a physical/logical money pool with a running balance.
+///
+/// Mirrors the backend's `Wallet` model (shared/models/erp.py:
+/// `{id, branch_id, name, wallet_type, active, tenant_id}`) instead of the
+/// old fixed `WalletId` enum, so the local shape matches the server's once
+/// sync ships (PLAN.md, phase 2.1). For now the app only ever works with
+/// the two [BuiltinWallets] below — real multi-wallet CRUD (custom wallets
+/// per branch) is out of scope until the backend wallet list is synced in.
+@immutable
+class Wallet {
+  final String id;
+  final String branchId;
+  final String name;
+  final String walletType;
+  final bool active;
 
-extension WalletIdX on WalletId {
-  String get label => switch (this) {
-        WalletId.cash => 'الخزنة (الدرج)',
-        WalletId.wallet => 'المحفظة',
-      };
+  const Wallet({
+    required this.id,
+    required this.branchId,
+    required this.name,
+    required this.walletType,
+    this.active = true,
+  });
 
-  String get wireValue => switch (this) {
-        WalletId.cash => 'CASH',
-        WalletId.wallet => 'WALLET',
-      };
+  /// The wire value used on `PaymentMethod` (CASH/WALLET) and stored on
+  /// wallet transaction payloads — same role `WalletId.wireValue` played
+  /// before. Built-in wallets deliberately reuse their `walletType` as this
+  /// value so a sale/expense paid by cash or wallet can post straight into
+  /// the matching ledger without a mapping table. Card settles to a bank
+  /// account and credit is a receivable, not money on hand, so neither has
+  /// a wallet here.
+  String get wireValue => walletType;
 
-  static WalletId fromWireValue(String value) => switch (value) {
-        'CASH' => WalletId.cash,
-        'WALLET' => WalletId.wallet,
-        _ => throw ArgumentError('Unknown WalletId wire value: $value'),
-      };
+  String get label => name;
+
+  @override
+  bool operator ==(Object other) => other is Wallet && other.id == id;
+
+  @override
+  int get hashCode => id.hashCode;
+}
+
+/// The two wallets every branch starts with today. Once wallet CRUD +
+/// sync exist (phase 4/5), these become the seed data for a real
+/// per-branch wallet list instead of the only wallets that can ever exist.
+class BuiltinWallets {
+  const BuiltinWallets._();
+
+  static const cash = Wallet(
+    id: 'wallet-cash',
+    branchId: LocalStore.defaultBranchId,
+    name: 'الخزنة (الدرج)',
+    walletType: 'CASH',
+  );
+
+  static const wallet = Wallet(
+    id: 'wallet-wallet',
+    branchId: LocalStore.defaultBranchId,
+    name: 'المحفظة',
+    walletType: 'WALLET',
+  );
+
+  static const all = [cash, wallet];
+
+  static Wallet byId(String id) => all.firstWhere(
+        (w) => w.id == id,
+        orElse: () => throw ArgumentError('Unknown wallet id: $id'),
+      );
+
+  static Wallet fromWireValue(String value) => all.firstWhere(
+        (w) => w.wireValue == value,
+        orElse: () => throw ArgumentError('Unknown wallet wire value: $value'),
+      );
 
   /// Returns null (instead of throwing) for wire values that don't have a
   /// wallet balance (CARD/CREDIT) — the convenience callers that post from
   /// a PaymentMethod need, since not every payment line should touch a
   /// wallet ledger.
-  static WalletId? tryFromWireValue(String value) => switch (value) {
-        'CASH' => WalletId.cash,
-        'WALLET' => WalletId.wallet,
-        _ => null,
-      };
+  static Wallet? tryFromWireValue(String value) {
+    for (final w in all) {
+      if (w.wireValue == value) return w;
+    }
+    return null;
+  }
 }
 
 /// What kind of event moved money in/out of a wallet.
@@ -58,7 +109,11 @@ extension WalletTxTypeX on WalletTxType {
 @immutable
 class WalletTransaction {
   final String id;
-  final WalletId walletId;
+
+  /// The owning wallet's [Wallet.id] — was a `WalletId` enum value before
+  /// phase 2.1, now a plain id so it can reference any wallet, not just the
+  /// two built-ins.
+  final String walletId;
   final WalletTxType type;
 
   /// Signed amount — positive for money in, negative for money out.

@@ -13,7 +13,7 @@ class WalletsPage extends StatefulWidget {
 class _WalletsPageState extends State<WalletsPage> {
   late Future<WalletRepository> _repositoryFuture;
   WalletRepository? _repository;
-  Future<Map<WalletId, double>>? _balancesFuture;
+  Future<Map<String, double>>? _balancesFuture;
   Future<List<WalletTransaction>>? _txFuture;
 
   @override
@@ -59,15 +59,16 @@ class _WalletsPageState extends State<WalletsPage> {
           child: ListView(
             padding: const EdgeInsets.fromLTRB(16, 8, 16, 28),
             children: [
-              FutureBuilder<Map<WalletId, double>>(
+              FutureBuilder<Map<String, double>>(
                 future: _balancesFuture,
                 builder: (context, snap) {
-                  final balances = snap.data ?? {for (final w in WalletId.values) w: 0.0};
+                  final balances = snap.data ?? {for (final w in BuiltinWallets.all) w.id: 0.0};
                   return Row(
                     children: [
-                      Expanded(child: _BalanceCard(walletId: WalletId.cash, amount: balances[WalletId.cash] ?? 0)),
-                      const SizedBox(width: 10),
-                      Expanded(child: _BalanceCard(walletId: WalletId.wallet, amount: balances[WalletId.wallet] ?? 0)),
+                      for (final w in BuiltinWallets.all) ...[
+                        Expanded(child: _BalanceCard(wallet: w, amount: balances[w.id] ?? 0)),
+                        if (w != BuiltinWallets.all.last) const SizedBox(width: 10),
+                      ],
                     ],
                   );
                 },
@@ -123,8 +124,8 @@ class _WalletsPageState extends State<WalletsPage> {
 }
 
 class _BalanceCard extends StatelessWidget {
-  const _BalanceCard({required this.walletId, required this.amount});
-  final WalletId walletId;
+  const _BalanceCard({required this.wallet, required this.amount});
+  final Wallet wallet;
   final double amount;
 
   @override
@@ -134,7 +135,7 @@ class _BalanceCard extends StatelessWidget {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text(walletId.label, style: const TextStyle(color: Colors.black54, fontSize: 12)),
+              Text(wallet.label, style: const TextStyle(color: Colors.black54, fontSize: 12)),
               const SizedBox(height: 6),
               Text('${amount.toStringAsFixed(0)} ج.م',
                   style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w900)),
@@ -158,7 +159,7 @@ class _TxTile extends StatelessWidget {
           child: Icon(isIn ? Icons.south_west_rounded : Icons.north_east_rounded,
               color: isIn ? Colors.green.shade700 : Colors.red.shade700),
         ),
-        title: Text('${tx.type.label} • ${tx.walletId.label}'),
+        title: Text('${tx.type.label} • ${BuiltinWallets.byId(tx.walletId).label}'),
         subtitle: Text(tx.note ?? '—'),
         trailing: Text(
           '${isIn ? '+' : ''}${tx.amount.toStringAsFixed(0)}',
@@ -185,7 +186,7 @@ class _WalletTxSheetState extends State<WalletTxSheet> {
   final _formKey = GlobalKey<FormState>();
   final _amountController = TextEditingController();
   final _noteController = TextEditingController();
-  WalletId _walletId = WalletId.cash;
+  String _walletId = BuiltinWallets.cash.id;
   bool _submitting = false;
   String? _error;
 
@@ -228,9 +229,9 @@ class _WalletTxSheetState extends State<WalletTxSheet> {
             Text(widget.deposit ? 'إيداع في محفظة' : 'سحب من محفظة',
                 style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w900)),
             const SizedBox(height: 16),
-            SegmentedButton<WalletId>(
-              segments: WalletId.values
-                  .map((w) => ButtonSegment(value: w, label: Text(w.label)))
+            SegmentedButton<String>(
+              segments: BuiltinWallets.all
+                  .map((w) => ButtonSegment(value: w.id, label: Text(w.label)))
                   .toList(),
               selected: {_walletId},
               onSelectionChanged: (s) => setState(() => _walletId = s.first),

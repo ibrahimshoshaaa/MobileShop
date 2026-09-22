@@ -208,7 +208,7 @@ class SqliteMaintenanceRepository implements MaintenanceRepository {
       command: 'deliverMaintenanceTicket',
       payload: {'ticket_id': ticketId, 'final_price': finalPrice, 'payment': payment, 'wallet_id': method.wireValue},
     );
-    final walletId = WalletIdX.tryFromWireValue(method.wireValue);
+    final walletId = BuiltinWallets.tryFromWireValue(method.wireValue)?.id;
     if (walletId != null && payment > 0) {
       final wallets = await getWalletRepository();
       await wallets.postAuto(

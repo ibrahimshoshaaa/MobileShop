@@ -27,7 +27,50 @@ class SqliteSalesRepository implements SalesRepository {
 
   static Future<SqliteSalesRepository> create(InventoryRepository inventory) async {
     final store = await LocalStore.open();
-    return SqliteSalesRepository._(store, inventory);
+    final repo = SqliteSalesRepository._(store, inventory);
+    await repo._migrateLegacyCostAtSale();
+    return repo;
+  }
+
+  /// 1.4 migration: sales created before `cost_at_sale` existed have items
+  /// with no cost snapshot at all. Their real historical cost was never
+  /// recorded, so the best available fallback is the product's cost *right
+  /// now* — the same approximation the reports screen used to make fresh on
+  /// every load before 1.4. The difference is this runs once and writes the
+  /// result back, so:
+  ///  - it stops silently drifting every time the product's cost changes later
+  ///    (the historical report for a past period should stay stable), and
+  ///  - every item on disk ends up with an explicit `costIsEstimated` flag,
+  ///    so reports can tell real snapshots from backfilled guesses instead of
+  ///    treating the whole report as one uniform estimate.
+  /// Sales that already have `cost_at_sale` on every item are left untouched.
+  Future<void> _migrateLegacyCostAtSale() async {
+    final rows = await _store.listRecords(entity: _entity);
+    final products = await _inventory.listProducts();
+    final costById = {for (final p in products) p.id: p.defaultCost};
+
+    for (final row in rows) {
+      final rawItems = (row.payload['items'] as List).cast<Map<String, dynamic>>();
+      final needsMigration = rawItems.any((i) => i['cost_at_sale'] == null);
+      if (!needsMigration) continue;
+
+      final migratedItems = rawItems.map((i) {
+        if (i['cost_at_sale'] != null) return i;
+        return {
+          ...i,
+          'cost_at_sale': costById[i['product_id']] ?? 0.0,
+          'cost_is_estimated': true,
+        };
+      }).toList();
+
+      final saleId = row.payload['id'] as String;
+      await _store.upsertRecord(
+        entity: _entity,
+        recordId: saleId,
+        payload: {...row.payload, 'items': migratedItems},
+        expectedVersion: row.version,
+      );
+    }
   }
 
   Map<String, dynamic> _itemToPayload(SaleItemRecord i) => {
@@ -35,13 +78,23 @@ class SqliteSalesRepository implements SalesRepository {
         'product_name': i.productName,
         'quantity': i.quantity,
         'unit_price': i.unitPrice,
+        'cost_at_sale': i.costAtSale,
+        'cost_is_estimated': i.costIsEstimated,
       };
 
+  /// [m] may come from a sale created before 1.4 added `cost_at_sale`, in
+  /// which case the key is simply absent. [create] runs a one-time
+  /// migration that backfills every such row, so by the time normal reads
+  /// happen the key should always be there — but this stays defensive
+  /// (defaults to 0 / estimated) in case a record is ever read before that
+  /// migration has run.
   SaleItemRecord _itemFromPayload(Map<String, dynamic> m) => SaleItemRecord(
         productId: m['product_id'] as String,
         productName: m['product_name'] as String,
         quantity: m['quantity'] as int,
         unitPrice: (m['unit_price'] as num).toDouble(),
+        costAtSale: (m['cost_at_sale'] as num?)?.toDouble() ?? 0,
+        costIsEstimated: m['cost_is_estimated'] as bool? ?? true,
       );
 
   Map<String, dynamic> _paymentToPayload(PaymentEntry p) => {
@@ -89,6 +142,18 @@ class SqliteSalesRepository implements SalesRepository {
   }
 
   @override
+  Future<List<SaleRecord>> listSalesInRange({DateTime? from, DateTime? to}) async {
+    final rows = await _store.listRecords(entity: _entity);
+    final sales = rows.map((r) => _toSale(r.payload)).where((s) {
+      if (from != null && s.createdAt.isBefore(from)) return false;
+      if (to != null && !s.createdAt.isBefore(to)) return false;
+      return true;
+    }).toList()
+      ..sort((a, b) => b.createdAt.compareTo(a.createdAt));
+    return sales;
+  }
+
+  @override
   Future<SaleRecord> createSale({
     required List<SaleItemRecord> items,
     required List<PaymentEntry> payments,
@@ -109,18 +174,33 @@ class SqliteSalesRepository implements SalesRepository {
     }
 
     // Validate all lines have enough stock *before* touching anything, to
-    // minimise the odds of a partial decrement on failure.
+    // minimise the odds of a partial decrement on failure. This same lookup
+    // also gives us each product's cost *right now*, which is exactly what
+    // "cost at the moment of sale" means — so we snapshot it into the item
+    // here rather than trusting whatever the caller happened to pass in.
     final currentProducts = await _inventory.listProducts();
+    final costById = <String, double>{};
     for (final item in items) {
       final product = currentProducts.where((p) => p.id == item.productId).firstOrNull;
       if (product == null) throw SalesException('الصنف "${item.productName}" لم يعد موجودًا.');
       if (product.type.wireValue != 'SERVICE' && product.quantity < item.quantity) {
         throw SalesException('الكمية غير كافية لـ "${product.name}" — المتاح: ${product.quantity}.');
       }
+      costById[item.productId] = product.defaultCost;
     }
+    final itemsWithCost = [
+      for (final item in items)
+        SaleItemRecord(
+          productId: item.productId,
+          productName: item.productName,
+          quantity: item.quantity,
+          unitPrice: item.unitPrice,
+          costAtSale: costById[item.productId]!,
+        ),
+    ];
 
     final saleId = _newId('sale');
-    for (final item in items) {
+    for (final item in itemsWithCost) {
       await _inventory.adjustStock(item.productId, -item.quantity, 'بيع فاتورة #$saleId');
     }
 
@@ -128,7 +208,7 @@ class SqliteSalesRepository implements SalesRepository {
       id: saleId,
       customerId: customerId,
       customerName: customerName,
-      items: items,
+      items: itemsWithCost,
       subtotal: subtotal,
       discount: discount,
       total: total,
@@ -143,7 +223,7 @@ class SqliteSalesRepository implements SalesRepository {
       payload: {
         'customer_id': customerId,
         'customer_name': customerName,
-        'items': items.map(_itemToPayload).toList(),
+        'items': itemsWithCost.map(_itemToPayload).toList(),
         'payments': payments.map(_paymentToPayload).toList(),
         'discount': discount,
       },
@@ -164,7 +244,7 @@ class SqliteSalesRepository implements SalesRepository {
   }) async {
     final wallets = await getWalletRepository();
     for (final p in payments) {
-      final walletId = WalletIdX.tryFromWireValue(p.method.wireValue);
+      final walletId = BuiltinWallets.tryFromWireValue(p.method.wireValue)?.id;
       if (walletId == null) continue;
       final signed = reversed ? -p.amount : p.amount;
       await wallets.postAuto(walletId: walletId, signedAmount: signed, type: type, note: note);

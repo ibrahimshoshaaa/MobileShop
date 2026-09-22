@@ -611,11 +611,11 @@ class _NewSaleBanner extends StatelessWidget {
       child: InkWell(
         onTap: onTap,
         borderRadius: BorderRadius.circular(18),
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 18),
+        child: const Padding(
+          padding: EdgeInsets.symmetric(horizontal: 18, vertical: 18),
           child: Row(
             children: [
-              const SizedBox(
+              SizedBox(
                 width: 46,
                 height: 46,
                 child: DecoratedBox(
@@ -626,15 +626,15 @@ class _NewSaleBanner extends StatelessWidget {
                   child: Icon(Icons.shopping_cart_rounded, color: Colors.white),
                 ),
               ),
-              const SizedBox(width: 14),
+              SizedBox(width: 14),
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    const Text('فانورة بيع جديدة',
+                    Text('فانورة بيع جديدة',
                         style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.w900)),
-                    const SizedBox(height: 4),
-                    const Text('موبايلات • إكسسوارات • قطع غيار • كروت',
+                    SizedBox(height: 4),
+                    Text('موبايلات • إكسسوارات • قطع غيار • كروت',
                         style: TextStyle(color: Colors.white70, fontSize: 11)),
                   ],
                 ),

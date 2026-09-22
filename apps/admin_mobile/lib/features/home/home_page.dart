@@ -315,8 +315,12 @@ class _HomePageState extends State<HomePage> {
     }
     if (action == 'deposit' || action == 'withdraw') {
       if (!mounted) return;
-      // ignore: use_build_context_synchronously
-      final result = await showModalBottomSheetWalletTx(context, repo, deposit: action == 'deposit');
+      final result = await showModalBottomSheetWalletTx(
+        context,
+        repo,
+        deposit: action == 'deposit',
+      );
+      if (!mounted) return;
       if (result == true) _load();
     }
   }

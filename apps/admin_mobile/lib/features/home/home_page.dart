@@ -467,7 +467,7 @@ class _HomePageState extends State<HomePage> {
                                         ? null
                                         : () async {
                                             final repo = _salesRepo ?? await getSalesRepository();
-                                            if (!mounted) return;
+                                            if (!context.mounted) return;
                                             await Navigator.of(context).push(
                                               MaterialPageRoute(
                                                 builder: (_) =>

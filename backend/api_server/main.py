@@ -49,6 +49,9 @@ if str(_REPO_ROOT) not in sys.path:
 
 from dataclasses import asdict, is_dataclass
 from decimal import Decimal
+import json as _json
+import urllib.error
+import urllib.request
 
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
@@ -94,6 +97,95 @@ if os.getenv("APP_ENV", "development").lower() != "production":
 sync_protocol = SyncProtocol(connection=engine._conn)
 
 verify_token = verify_production_token if os.getenv("AUTH_PROVIDER", "dev").lower() == "firebase" else verify_dev_token
+
+# ─── Email/password login (backs POST /auth/login below) ───────────────────
+#
+# Neither dev_auth.py nor production_auth.py handle a login *exchange* — they
+# only verify a bearer token that some other process already issued. This
+# fills that gap for both modes:
+#
+# - firebase mode: calls the Firebase Identity Toolkit REST API (the same
+#   HTTP endpoint the Firebase client SDKs call under the hood) to verify
+#   email/password and mint a real Firebase ID token, then runs that token
+#   straight through verify_production_token — no separate trust path.
+#   Requires FIREBASE_WEB_API_KEY (the public *Web API key* from the
+#   Firebase project settings — not a service-account secret).
+# - dev mode: a static email/password table mirroring dev_auth.py's static
+#   token table. Local/dev sandbox only, never used in production (guarded
+#   the same way dev_auth.py's tokens already are).
+
+
+class _LoginError(Exception):
+    def __init__(self, message: str):
+        self.message = message
+        super().__init__(message)
+
+
+_DEV_LOGIN_USERS = {
+    "owner@dev.local": {"password": "dev1234", "token": "dev-owner-token", "display_name": "مدير النظام"},
+    "cashier@dev.local": {"password": "dev1234", "token": "dev-cashier-token", "display_name": "كاشير"},
+}
+
+
+class _BearerOnlyRequest:
+    """Minimal stand-in so verify_production_token(request) can read a
+    freshly-minted ID token the same way it reads any other request."""
+
+    def __init__(self, id_token: str):
+        self.headers = {"authorization": f"Bearer {id_token}"}
+
+
+def _firebase_sign_in(email: str, password: str) -> str:
+    api_key = os.getenv("FIREBASE_WEB_API_KEY")
+    if not api_key:
+        raise _LoginError("إعداد الخادم غير مكتمل (FIREBASE_WEB_API_KEY).")
+    url = f"https://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword?key={api_key}"
+    payload = _json.dumps({"email": email, "password": password, "returnSecureToken": True}).encode()
+    req = urllib.request.Request(url, data=payload, headers={"Content-Type": "application/json"}, method="POST")
+    try:
+        with urllib.request.urlopen(req, timeout=10) as res:
+            data = _json.loads(res.read().decode())
+    except urllib.error.HTTPError as exc:
+        try:
+            body = _json.loads(exc.read().decode())
+            reason = (body.get("error") or {}).get("message", "")
+        except Exception:
+            reason = ""
+        if reason in {"EMAIL_NOT_FOUND", "INVALID_PASSWORD", "INVALID_LOGIN_CREDENTIALS"}:
+            raise _LoginError("بيانات الدخول غير صحيحة.") from exc
+        raise _LoginError("تعذّر الاتصال بخدمة تسجيل الدخول.") from exc
+    except urllib.error.URLError as exc:
+        raise _LoginError("تعذّر الاتصال بخدمة تسجيل الدخول.") from exc
+    return data["idToken"]
+
+
+def _login(email: str, password: str) -> dict:
+    """Returns the {token, tenant_id, account_id, display_name} payload the
+    Flutter client's AuthService.login expects, or raises _LoginError."""
+    if os.getenv("AUTH_PROVIDER", "dev").lower() == "firebase":
+        id_token = _firebase_sign_in(email, password)
+        claims = verify_production_token(_BearerOnlyRequest(id_token))
+        if not claims:
+            # Signed in with Firebase but the ID token carries no usable
+            # tenant_id/branch_ids/permissions custom claims yet — the
+            # account exists but hasn't been provisioned into the ERP.
+            raise _LoginError("الحساب غير مُهيأ بعد. تواصل مع مدير النظام.")
+        return {
+            "token": id_token,
+            "tenant_id": claims["tenant_id"],
+            "account_id": claims["uid"],
+            "display_name": email,
+        }
+    user = _DEV_LOGIN_USERS.get(email)
+    if not user or user["password"] != password:
+        raise _LoginError("بيانات الدخول غير صحيحة.")
+    claims = verify_dev_token(_BearerOnlyRequest(user["token"]))
+    return {
+        "token": user["token"],
+        "tenant_id": claims["tenant_id"],
+        "account_id": claims["uid"],
+        "display_name": user["display_name"],
+    }
 
 _ERROR_STATUS = {
     "UNAUTHORIZED": 401,
@@ -145,7 +237,7 @@ def root():
         "service": "Mobile Shop ERP API",
         "status": "ok",
         "health": "/health",
-        "api": ["/products", "/query/{entity}", "/command", "/sync/upload", "/sync/changes"],
+        "api": ["/auth/login", "/branches", "/products", "/query/{entity}", "/command", "/sync/upload", "/sync/changes"],
         "clients": ["Flutter mobile/admin", "Python desktop POS"],
     }
 
@@ -153,6 +245,43 @@ def root():
 @app.get("/health")
 def health():
     return {"status": "ok", "mode": os.getenv("APP_ENV", "development").lower(), "persistence": "turso/libsql" if os.getenv("TURSO_DATABASE_URL") else "sqlite"}
+
+
+@app.post("/auth/login")
+async def login_endpoint(request: Request):
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    email = str((body or {}).get("email") or "").strip()
+    password = str((body or {}).get("password") or "")
+    if not email or not password:
+        return JSONResponse(
+            {"ok": False, "error": {"code": "INVALID_INPUT", "message": "البريد الإلكتروني وكلمة المرور مطلوبان.", "details": {}}},
+            status_code=400,
+        )
+    try:
+        data = _login(email, password)
+    except _LoginError as exc:
+        return JSONResponse({"ok": False, "error": {"code": "UNAUTHORIZED", "message": exc.message, "details": {}}}, status_code=401)
+    return JSONResponse({"ok": True, "data": data})
+
+
+@app.get("/branches")
+def branches_endpoint(request: Request):
+    claims = verify_token(request)
+    if not claims:
+        return JSONResponse({"ok": False, "error": {"code": "UNAUTHORIZED", "message": "التوثيق مطلوب.", "details": {}}}, status_code=401)
+    tenant_id = claims.get("tenant_id")
+    if not tenant_id:
+        return JSONResponse({"ok": False, "error": {"code": "TENANT_REQUIRED", "message": "هوية المستأجر مطلوبة.", "details": {}}}, status_code=401)
+    token = set_tenant_scope(str(tenant_id))
+    try:
+        allowed = set(claims.get("branch_ids", ()))
+        rows = [_json_safe(b) for b in engine.branches.all() if b.id in allowed]
+        return JSONResponse({"ok": True, "data": rows})
+    finally:
+        reset_tenant_scope(token)
 
 
 @app.get("/products")

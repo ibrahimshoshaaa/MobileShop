@@ -9,6 +9,8 @@ import 'backup_service.dart';
 import '../auth/auth_models.dart';
 import '../auth/auth_service.dart';
 import '../auth/login_page.dart';
+import '../inventory/local_store.dart';
+import '../sync/upload_queue.dart';
 
 class SettingsPage extends StatefulWidget {
   const SettingsPage({super.key, this.onSessionChanged});
@@ -23,11 +25,26 @@ class SettingsPage extends StatefulWidget {
 class _SettingsPageState extends State<SettingsPage> {
   bool _busy = false;
   AccountSession? _session;
+  int _pendingCount = 0;
+  bool _syncing = false;
+  List<({String commandId, String command, String status, String? error})> _syncFailures = const [];
 
   @override
   void initState() {
     super.initState();
     _session = AuthService.instance.currentSession;
+    _refreshSyncStatus();
+  }
+
+  Future<void> _refreshSyncStatus() async {
+    final store = await LocalStore.open();
+    final count = await store.pendingCommandCount();
+    final failures = await store.terminalFailures();
+    if (!mounted) return;
+    setState(() {
+      _pendingCount = count;
+      _syncFailures = failures;
+    });
   }
 
   // ─── Auth ─────────────────────────────────────────────────────────────────
@@ -40,6 +57,11 @@ class _SettingsPageState extends State<SettingsPage> {
             Navigator.pop(context);
             setState(() => _session = session);
             widget.onSessionChanged?.call();
+            // 5.1: catch up whatever's been queuing in the outbox — this
+            // could be the very first login on a device with pre-existing
+            // offline data, or a branch switch. Fire-and-forget, same
+            // reasoning as main.dart's app-start drain.
+            _syncNow(showBusyIndicator: false);
           },
         ),
       ),
@@ -72,6 +94,37 @@ class _SettingsPageState extends State<SettingsPage> {
     await AuthService.instance.logout();
     setState(() => _session = null);
     widget.onSessionChanged?.call();
+  }
+
+  // ─── Sync (5.1) ───────────────────────────────────────────────────────────
+
+  Future<void> _syncNow({bool showBusyIndicator = true}) async {
+    if (_syncing) return;
+    setState(() {
+      _syncing = true;
+      if (showBusyIndicator) _busy = true;
+    });
+    try {
+      final store = await LocalStore.open();
+      final result = await UploadQueue(store).drain();
+      if (!mounted) return;
+      await _refreshSyncStatus();
+      if (!mounted) return;
+      if (result.transportError != null) {
+        _showSnack('تعذّرت المزامنة: ${result.transportError}', isError: true);
+      } else if (result.terminalFailures > 0) {
+        _showSnack('تمت المزامنة مع ${result.terminalFailures} عملية مرفوضة من السيرفر — التفاصيل تحت.', isError: true);
+      } else if (result.applied > 0) {
+        _showSnack('تمت مزامنة ${result.applied} عملية بنجاح.');
+      } else {
+        _showSnack('لا يوجد شيء يحتاج مزامنة.');
+      }
+    } finally {
+      if (mounted) setState(() {
+        _syncing = false;
+        if (showBusyIndicator) _busy = false;
+      });
+    }
   }
 
   // ─── Backup ───────────────────────────────────────────────────────────────
@@ -275,6 +328,35 @@ class _SettingsPageState extends State<SettingsPage> {
                       trailing: const Icon(Icons.chevron_left),
                       onTap: _openLogin,
                     ),
+                    const Divider(height: 1),
+                    ListTile(
+                      leading: _syncing
+                          ? const SizedBox(
+                              width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2))
+                          : const Icon(Icons.sync_rounded),
+                      title: const Text('مزامنة الآن'),
+                      subtitle: Text(
+                        _pendingCount > 0
+                            ? '$_pendingCount عملية بانتظار الرفع للسيرفر'
+                            : 'كل البيانات متزامنة مع السيرفر',
+                      ),
+                      trailing: _syncing ? null : const Icon(Icons.chevron_left),
+                      onTap: _syncing ? null : () => _syncNow(),
+                    ),
+                    if (_syncFailures.isNotEmpty) ...[
+                      const Divider(height: 1),
+                      ListTile(
+                        leading: const Icon(Icons.error_outline_rounded, color: Colors.red),
+                        title: Text('${_syncFailures.length} عملية مرفوضة من السيرفر',
+                            style: const TextStyle(color: Colors.red, fontWeight: FontWeight.bold)),
+                        subtitle: Text(
+                          _syncFailures.first.error ?? _syncFailures.first.status,
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                        isThreeLine: true,
+                      ),
+                    ],
                     const Divider(height: 1),
                     ListTile(
                       leading: const Icon(Icons.logout_rounded,

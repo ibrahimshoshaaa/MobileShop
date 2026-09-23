@@ -1,5 +1,8 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'features/inventory/inventory_page.dart';
+import 'features/inventory/local_store.dart';
 import 'features/sales/sales_page.dart';
 import 'features/sales/sales_provider.dart';
 import 'features/customers/customers_page.dart';
@@ -13,6 +16,7 @@ import 'features/home/home_page.dart';
 import 'features/settings/settings_page.dart';
 import 'features/auth/auth_models.dart';
 import 'features/auth/auth_service.dart';
+import 'features/sync/upload_queue.dart';
 
 void main() => runApp(const MobileShopApp());
 
@@ -98,8 +102,16 @@ class _AppEntryState extends State<_AppEntry> {
   }
 
   Future<void> _load() async {
-    await AuthService.instance.loadSession();
+    final session = await AuthService.instance.loadSession();
     if (mounted) setState(() => _ready = true);
+    if (session != null) {
+      // 5.1: catch up the offline outbox on every app start where we're
+      // already logged in — not just right after a fresh login (see
+      // settings_page.dart's _openLogin). Deliberately not awaited: a slow
+      // or failed drain must never hold up showing the dashboard, and
+      // UploadQueue.drain() already swallows its own transport errors.
+      unawaited(UploadQueue(await LocalStore.open()).drain());
+    }
   }
 
   @override

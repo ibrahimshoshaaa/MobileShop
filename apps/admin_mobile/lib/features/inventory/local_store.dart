@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:math';
 import 'package:path/path.dart' as p;
 import 'package:sqflite/sqflite.dart';
 
@@ -173,10 +174,128 @@ class LocalStore {
     });
   }
 
-  Future<int> pendingCommandCount({String tenantId = defaultTenantId}) async {
-    final result = await _db.rawQuery(
-        "SELECT COUNT(*) as c FROM commands WHERE tenant_id = ? AND status = 'PENDING'", [tenantId]);
+  /// Marks a queued command as already delivered to the server — used by
+  /// the 4.3 "push now, best effort" write path (see
+  /// `features/sync/online_push.dart`) right after a direct `/command` call
+  /// for it succeeds. Removing it from `outbox` (not just flipping
+  /// `commands.status`) is what actually keeps it from being resent: the
+  /// future Upload Queue (5.1) will drain `outbox`, not `commands`, so a row
+  /// no longer there is a row it will never see. `commands` itself is kept
+  /// (status set to `SYNCED`) purely as a local audit trail of what already
+  /// reached the server.
+  Future<void> markCommandSynced(String commandId) async {
+    await _db.transaction((txn) async {
+      await txn.delete('outbox', where: 'command_id = ?', whereArgs: [commandId]);
+      await txn.update(
+        'commands',
+        {'status': 'SYNCED', 'updated_at': DateTime.now().toIso8601String()},
+        where: 'command_id = ?',
+        whereArgs: [commandId],
+      );
+    });
+  }
+
+  /// Count of commands still waiting to reach the server (i.e. still in
+  /// `outbox`) — this device only ever has one meaningfully active
+  /// tenant/branch at a time (see [UploadQueue]'s doc comment), so this
+  /// deliberately doesn't filter by tenant the way it used to.
+  Future<int> pendingCommandCount() async {
+    final result = await _db.rawQuery("SELECT COUNT(*) as c FROM outbox");
     return Sqflite.firstIntValue(result) ?? 0;
+  }
+
+  /// One PENDING command whose retry backoff (if any) has already elapsed —
+  /// everything the Upload Queue (5.1, `features/sync/upload_queue.dart`)
+  /// needs to build one `/sync/upload` envelope for it. `tenantId`/
+  /// `branchId` are deliberately not included here: they're read off the
+  /// *current* session at drain time instead of what's stored on the row
+  /// (see the doc comment on [UploadQueue.drain] for why).
+  Future<List<({String commandId, String command, Map<String, dynamic> payload, int attempts})>> listDueOutboxCommands({
+    int limit = 100,
+  }) async {
+    final rows = await _db.rawQuery('''
+      SELECT c.command_id, c.command, c.payload, c.attempts
+      FROM outbox o
+      JOIN commands c ON c.command_id = o.command_id
+      WHERE o.next_attempt_at IS NULL OR o.next_attempt_at <= ?
+      ORDER BY c.created_at
+      LIMIT ?
+    ''', [DateTime.now().toIso8601String(), limit]);
+    return rows
+        .map((r) => (
+              commandId: r['command_id'] as String,
+              command: r['command'] as String,
+              payload: jsonDecode(r['payload'] as String) as Map<String, dynamic>,
+              attempts: r['attempts'] as int,
+            ))
+        .toList();
+  }
+
+  /// Records a RETRYABLE result from the server: bumps `attempts` and pushes
+  /// `outbox.next_attempt_at` out with exponential backoff (10s, 20s, 40s,
+  /// ... capped at 1 hour) so a flaky connection or a transient server error
+  /// doesn't get hammered every drain — [listDueOutboxCommands] simply won't
+  /// return this row again until that time passes. Stays PENDING/in the
+  /// outbox either way; nothing here is terminal.
+  Future<void> scheduleRetry(String commandId, String error) async {
+    await _db.transaction((txn) async {
+      final rows = await txn.query('commands', columns: ['attempts'], where: 'command_id = ?', whereArgs: [commandId]);
+      if (rows.isEmpty) return;
+      final attempts = (rows.first['attempts'] as int) + 1;
+      final backoffSeconds = min(3600, 10 * (1 << min(attempts, 9)));
+      final nextAttempt = DateTime.now().add(Duration(seconds: backoffSeconds)).toIso8601String();
+      await txn.update(
+        'commands',
+        {'attempts': attempts, 'error': error, 'updated_at': DateTime.now().toIso8601String()},
+        where: 'command_id = ?',
+        whereArgs: [commandId],
+      );
+      await txn.update(
+        'outbox',
+        {'next_attempt_at': nextAttempt, 'last_error': error},
+        where: 'command_id = ?',
+        whereArgs: [commandId],
+      );
+    });
+  }
+
+  /// Records a terminal (non-retryable) result — CONFLICT or FAILED. The
+  /// server has definitively rejected this exact command and resending it
+  /// unchanged will never succeed (a stale version, a domain rule violation,
+  /// an idempotency-key reuse with different content), so it's removed from
+  /// `outbox` — the queue stops touching it — while `commands` keeps the row
+  /// with its [status]/[error] as a local audit trail the person can be
+  /// shown (see Settings' Cloud Account section).
+  Future<void> markCommandTerminalFailure(String commandId, String status, String? error) async {
+    await _db.transaction((txn) async {
+      await txn.delete('outbox', where: 'command_id = ?', whereArgs: [commandId]);
+      await txn.update(
+        'commands',
+        {'status': status, 'error': error, 'updated_at': DateTime.now().toIso8601String()},
+        where: 'command_id = ?',
+        whereArgs: [commandId],
+      );
+    });
+  }
+
+  /// Commands the Upload Queue gave up on (CONFLICT/FAILED) — surfaced in
+  /// Settings so a rejected sale/expense/etc. doesn't just silently vanish
+  /// from sync forever with no way for the person to notice.
+  Future<List<({String commandId, String command, String status, String? error})>> terminalFailures() async {
+    final rows = await _db.query(
+      'commands',
+      where: "status IN ('CONFLICT','FAILED')",
+      orderBy: 'updated_at DESC',
+      limit: 50,
+    );
+    return rows
+        .map((r) => (
+              commandId: r['command_id'] as String,
+              command: r['command'] as String,
+              status: r['status'] as String,
+              error: r['error'] as String?,
+            ))
+        .toList();
   }
 
   /// Dumps every row of the `records` table (every entity: products, sales,

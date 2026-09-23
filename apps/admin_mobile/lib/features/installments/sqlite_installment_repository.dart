@@ -1,6 +1,8 @@
 import 'dart:math';
 import '../inventory/local_store.dart';
 import '../sales/sale_models.dart' show PaymentMethod, PaymentMethodX;
+import '../sync/online_push.dart';
+import '../wallets/wallet_models.dart';
 import 'installment_models.dart';
 import 'installment_repository.dart';
 
@@ -97,11 +99,37 @@ class SqliteInstallmentRepository implements InstallmentRepository {
       createdAt: DateTime.now(),
     );
     await _store.upsertRecord(entity: _planEntity, recordId: plan.id, payload: _planPayload(plan), expectedVersion: 0);
+    // Reuses plan.id as the command id, same reasoning as createSale in
+    // sqlite_sale_repository.dart — so a successful online push leaves the
+    // server's InstallmentPlan under this same id, which collectPayment
+    // below relies on when it later references [planId].
     await _store.queueCommand(
-      commandId: _newId('cmd-plan'),
+      commandId: plan.id,
       command: 'createInstallmentPlan',
       payload: _planPayload(plan),
     );
+    // 4.3: only pushable when both are true —
+    //  - saleId != null: create_installment_plan on the server always
+    //    looks the sale up (`s=self.sales.get(sale_id)`) and uses it to
+    //    validate the receivable and the customer; there is no server-side
+    //    concept of a plan with no linked sale, unlike this local model,
+    //    which deliberately allows [saleId] to be null for a standalone/
+    //    layaway-style plan (see the InstallmentPlan doc comment).
+    //  - downPayment == 0: the server takes an explicit
+    //    `down_payment_wallet_id` to post the down payment against, and
+    //    requires one whenever down_payment > 0 — this local model has no
+    //    down-payment-wallet field at all (createPlan's signature has no
+    //    [PaymentMethod] parameter for it), so there's nothing correct to
+    //    send when a down payment was actually taken.
+    if (saleId != null && downPayment == 0) {
+      await pushCommandOnline(_store, plan.id, 'createInstallmentPlan', {
+        'sale_id': saleId,
+        'customer_id': customerId,
+        'down_payment': downPayment,
+        'rate_percent': ratePercent,
+        'term_months': termMonths,
+      });
+    }
     return plan;
   }
 
@@ -151,7 +179,7 @@ class SqliteInstallmentRepository implements InstallmentRepository {
       expectedVersion: 0,
     );
     await _store.queueCommand(
-      commandId: _newId('cmd-collect'),
+      commandId: payment.id,
       command: 'collectInstallment',
       payload: {
         'installment_id': planId,
@@ -159,6 +187,22 @@ class SqliteInstallmentRepository implements InstallmentRepository {
         'wallet_id': method.wireValue,
       },
     );
+    // Same CASH/WALLET-only constraint as sales/expenses above: the server
+    // requires a real wallet to post the collection against, and there's
+    // none for CARD/CREDIT. Reuses payment.id as the command id, matching
+    // createPlan's id-reuse above, though this push only actually lands
+    // when the plan itself made it to the server (i.e. it was created with
+    // saleId set and no down payment) — otherwise the server 404s on
+    // [planId] and this is silently left queued, same as any other
+    // best-effort push.
+    final walletId = BuiltinWallets.tryFromWireValue(method.wireValue)?.id;
+    if (walletId != null) {
+      await pushCommandOnline(_store, payment.id, 'collectInstallment', {
+        'installment_id': planId,
+        'amount': amount,
+        'wallet_id': walletId,
+      });
+    }
     return payment;
   }
 

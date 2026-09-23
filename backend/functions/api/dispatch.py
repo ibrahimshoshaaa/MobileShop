@@ -10,9 +10,16 @@ def dispatch(engine, name, command, **payload):
         command = CreateSaleCommand(command, payload.get('customer_id'), tuple(payload.get('items', ())), tuple(payload.get('payments', ())), payload.get('discount', 0))
         payload = {}
     elif name == 'collectInstallment':
-        from shared.contracts.commands import CollectInstallmentCommand
-        command = CollectInstallmentCommand(command, payload['installment_id'], payload['amount'], payload['wallet_id'])
-        payload = {}
+        # engine.collect_installment(command, plan_id, amount, wallet_id) takes
+        # a bare CommandContext (only `_ctx(command)` is used inside) plus plain
+        # kwargs — unlike createSale, it does not consume a rich contract
+        # object. Building CollectInstallmentCommand and then discarding
+        # payload (as this branch previously did) left nothing for
+        # collect_installment's required plan_id/amount/wallet_id arguments,
+        # so every collectInstallment call raised TypeError before it could
+        # even reach validation. Keep `command` as the plain context and pass
+        # the fields through as payload instead.
+        payload = {'plan_id': payload['installment_id'], 'amount': payload['amount'], 'wallet_id': payload['wallet_id']}
     elif name == 'createProduct':
         # create_product(self, command, product) needs an actual Product
         # dataclass, not a bare dict — this was previously unhandled here

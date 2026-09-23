@@ -2,6 +2,7 @@ import 'dart:math';
 import '../inventory/inventory_models.dart';
 import '../inventory/inventory_repository.dart';
 import '../inventory/local_store.dart';
+import '../sync/online_push.dart';
 import '../wallets/wallet_models.dart';
 import '../wallets/wallet_provider.dart';
 import 'sale_models.dart';
@@ -217,8 +218,15 @@ class SqliteSalesRepository implements SalesRepository {
       createdAt: DateTime.now(),
     );
     await _store.upsertRecord(entity: _entity, recordId: sale.id, payload: _toPayload(sale), expectedVersion: 0);
+    // Reuses saleId as the command id (instead of a separately-generated
+    // one) specifically so that, when the online push below succeeds, the
+    // server's own Sale record ends up with this exact same id
+    // (`create_sale` in erp_engine.py sets the new Sale's id to
+    // `command.command_id`) — local and server agree on what this sale is
+    // called from the moment it's created, which voidSale below (and any
+    // future download-sync in 5.2) relies on.
     await _store.queueCommand(
-      commandId: _newId('cmd-sale'),
+      commandId: saleId,
       command: 'createSale',
       payload: {
         'customer_id': customerId,
@@ -228,9 +236,39 @@ class SqliteSalesRepository implements SalesRepository {
         'discount': discount,
       },
     );
+    // 4.3: push straight to the server too, best effort, on top of the
+    // outbox row just queued above (unchanged — still there for 5.1).
+    // Server shape differs from the local one in two ways `_itemToPayload`/
+    // `_paymentToPayload` don't need to care about: no `product_unit_id`
+    // (the mobile app never sells IMEI-tracked units), and payments are
+    // keyed by `wallet_id`, not by [PaymentMethod] — CARD/CREDIT payments
+    // have no wallet on the server (see `_postWalletEntries` below, which
+    // skips them for the same reason), so they're left out of what's sent;
+    // if that drops the paid total below the invoice total, the server
+    // treats the gap as a receivable exactly like a partial/credit sale —
+    // and rejects it if there's no customer to owe it, same as locally.
+    await pushCommandOnline(_store, saleId, 'createSale', {
+      'customer_id': customerId,
+      'items': [
+        for (final item in itemsWithCost)
+          {'product_id': item.productId, 'quantity': item.quantity, 'unit_price': item.unitPrice},
+      ],
+      'payments': _serverPayments(payments),
+      'discount': discount,
+    });
     await _postWalletEntries(sale.payments, WalletTxType.sale, 'فاتورة بيع #$saleId', reversed: false);
     return sale;
   }
+
+  /// Payment lines the server can actually attribute to a wallet — mirrors
+  /// the same CASH/WALLET-only filter [_postWalletEntries] already applies
+  /// locally, reused here so the online push and the local wallet ledger
+  /// never disagree about which payments "count" as wallet money.
+  List<Map<String, dynamic>> _serverPayments(List<PaymentEntry> payments) => [
+        for (final p in payments)
+          if (BuiltinWallets.tryFromWireValue(p.method.wireValue) != null)
+            {'wallet_id': BuiltinWallets.tryFromWireValue(p.method.wireValue)!.id, 'amount': p.amount},
+      ];
 
   /// Cash/wallet payment lines move real money, so they post to the wallet
   /// ledger too (see wallets/wallet_repository.dart). Card settles to a
@@ -275,11 +313,15 @@ class SqliteSalesRepository implements SalesRepository {
       payload: _toPayload(voided),
       expectedVersion: current.version,
     );
+    final voidCmdId = _newId('cmd-void');
     await _store.queueCommand(
-      commandId: _newId('cmd-void'),
+      commandId: voidCmdId,
       command: 'voidSale',
       payload: {'sale_id': saleId},
     );
+    // Safe to push directly: [saleId] is what the server knows this sale
+    // as too, since createSale above pushed it under that same id.
+    await pushCommandOnline(_store, voidCmdId, 'voidSale', {'sale_id': saleId});
     await _postWalletEntries(sale.payments, WalletTxType.sale, 'إلغاء فاتورة #$saleId', reversed: true);
     return voided;
   }

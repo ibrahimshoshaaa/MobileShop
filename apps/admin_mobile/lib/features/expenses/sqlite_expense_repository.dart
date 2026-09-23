@@ -1,6 +1,7 @@
 import 'dart:math';
 import '../inventory/local_store.dart';
 import '../sales/sale_models.dart' show PaymentMethod, PaymentMethodX;
+import '../sync/online_push.dart';
 import '../wallets/wallet_models.dart';
 import '../wallets/wallet_provider.dart';
 import 'expense_models.dart';
@@ -62,8 +63,11 @@ class SqliteExpenseRepository implements ExpenseRepository {
       createdAt: DateTime.now(),
     );
     await _store.upsertRecord(entity: _entity, recordId: expense.id, payload: _toPayload(expense), expectedVersion: 0);
+    // Reuses expense.id as the command id, same reasoning as createSale in
+    // sqlite_sale_repository.dart — so a successful online push below
+    // leaves the server's Expense record under this same id.
     await _store.queueCommand(
-      commandId: _newId(prefix: 'cmd-expense'),
+      commandId: expense.id,
       command: 'createExpense',
       payload: {
         'wallet_id': method.wireValue,
@@ -73,7 +77,20 @@ class SqliteExpenseRepository implements ExpenseRepository {
       },
     );
     final walletId = BuiltinWallets.tryFromWireValue(method.wireValue)?.id;
+    // 4.3: server's createExpense (unlike the local model) has no CARD/
+    // CREDIT concept — an expense must come out of an actual wallet
+    // balance it can check (`self._balance(wallet_id)<amount` in
+    // erp_engine.py), and there's no built-in wallet for those two
+    // methods. So the push is only attempted when [method] does resolve
+    // to a real wallet — same condition [walletId != null] already used
+    // just below for the local wallet posting.
     if (walletId != null) {
+      await pushCommandOnline(_store, expense.id, 'createExpense', {
+        'wallet_id': walletId,
+        'amount': amount,
+        'category': category,
+        'note': expense.note,
+      });
       final wallets = await getWalletRepository();
       await wallets.postAuto(
         walletId: walletId,

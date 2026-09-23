@@ -276,9 +276,9 @@ async def admin_create_user(request: Request):
         existing = engine.branches.get(branch_id)
         branch = Branch(id=branch_id, name=branch_name, code=branch_code, active=True, tenant_id=tenant_id)
         if existing is None:
-            engine.branches.create(branch_id, branch, tenant_id=tenant_id)
+            engine.transaction(lambda: engine.branches.create(branch_id, branch, tenant_id=tenant_id))
         else:
-            engine.branches.update(branch_id, branch)
+            engine.transaction(lambda: engine.branches.update(branch_id, branch))
     except PermissionError:
         return JSONResponse({"ok": False, "error": {"code": "CROSS_TENANT", "message": "كود الفرع مستخدم من مستأجر تاني.", "details": {}}}, status_code=409)
     finally:

@@ -88,10 +88,12 @@ class AuthService {
         : apiUrl;
 
     // 1) Login
-    final loginData = await _post('$base/auth/login', {
+    final loginRaw = await _post('$base/auth/login', {
       'email': email.trim(),
       'password': password,
     });
+    final loginData = loginRaw['data'] as Map<String, dynamic>? ??
+        (throw AuthException('استجابة غير متوقعة من السيرفر.'));
 
     final token = loginData['token'] as String? ??
         (throw AuthException('السيرفر لم يُرجع token.'));

@@ -260,6 +260,11 @@ flutter run
 ---
 
 - [x] 5.2 Download Queue (Cursor Tracking + Changes Fetching). ✅
+
+**تصحيح `flutter analyze` (بعد تشغيله فعليًا على CI):**
+- `lib/features/settings/settings_page.dart:143` — `if (mounted) setState(...)` من غير قوسين حوالين جسم الـ if (`curly_braces_in_flow_control_structures`) → اتحطّت `{ }` صريحة.
+- `lib/features/sync/download_queue.dart:128` — متغيّر محلي `version` (مستخرج من `change['cursor']`) متعرّفش وميتستخدمش خالص جوا `_applyChange` (`unused_local_variable`) — الكود فعليًا بيمشي بسياسة "السيرفر دايمًا أحق" (`expectedVersion: null`)، فمفيش داعي للمتغيّر أصلًا → اتشال مع تعليقه.
+
 - [ ] 5.3 Sync Dashboard (Pending Commands / Last Sync / Sync Errors / Conflict Count) — نسخة مبسّطة موجودة بالفعل من 5.1 (فوق)، ده لو احتجنا شاشة مخصصة أوسع.
 
 ---

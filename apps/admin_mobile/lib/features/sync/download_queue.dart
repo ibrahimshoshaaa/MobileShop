@@ -124,9 +124,6 @@ class DownloadQueue {
       final recordId = _guessId(payload);
       if (entityType == null || recordId == null) return;
 
-      // version من cursor رقم الـ sequence عشان upsert يعرف الأحدث
-      final version = (change['cursor'] as num?)?.toInt() ?? 1;
-
       try {
         await _store.upsertRecord(
           entity: entityType,

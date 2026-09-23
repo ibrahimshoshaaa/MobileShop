@@ -140,10 +140,12 @@ class _SettingsPageState extends State<SettingsPage> {
         _showSnack('البيانات محدّثة، لا يوجد تغييرات.');
       }
     } finally {
-      if (mounted) setState(() {
-        _syncing = false;
-        if (showBusyIndicator) _busy = false;
-      });
+      if (mounted) {
+        setState(() {
+          _syncing = false;
+          if (showBusyIndicator) _busy = false;
+        });
+      }
     }
   }
 

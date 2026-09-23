@@ -93,18 +93,14 @@ def test_dispatch_create_wallet_rejects_cross_branch_payload():
     assert exc.value.code == "BRANCH_ACCESS_DENIED"
 
 
-def test_dispatch_create_product_flat_payload_note():
-    """Note: a flat (unwrapped) payload only works when none of its keys
-    collide with dispatch()'s own positional parameters (engine/name/command)
-    — and Product.name always collides with dispatch()'s 'name' parameter,
-    so createProduct/createCustomer/createSupplier payloads must use the
-    wrapper key ({'product': {...}}, etc.) shown in the other tests above.
-    This is a pre-existing quirk of dispatch()'s **payload signature, not
-    something this fix introduces or attempts to solve."""
+def test_dispatch_create_product_flat_payload():
+    """A flat (unwrapped) payload works too: dispatch() names its own parameter
+    `command_name`, so Product.name no longer collides with it. The wrapped form
+    ({'product': {...}}) remains supported (see the other tests here)."""
     e = ERPCommandEngine()
-    import pytest
-    with pytest.raises(TypeError):
-        dispatch(e, "createProduct", ctx("p1"), name="سماعة", sku="SKU-2", product_type="ACCESSORY")
+    product = dispatch(e, "createProduct", ctx("p1"), name="سماعة", sku="SKU-2", product_type="ACCESSORY")
+    assert product.sku == "SKU-2"
+    assert product.name == "سماعة"
 
 
 def test_http_handle_create_product_end_to_end():

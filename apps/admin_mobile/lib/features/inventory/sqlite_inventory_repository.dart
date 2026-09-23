@@ -162,6 +162,21 @@ class SqliteInventoryRepository implements InventoryRepository {
       command: 'createProduct',
       payload: _toPayload(product),
     );
+    // The server has no "quantity" field on Product — it only computes stock
+    // from real StockMovement rows (see erp_engine.py's _available_qty), and
+    // createProduct's payload on the server side never reads a quantity
+    // field at all. So an opening quantity here was previously silently
+    // dropped: the product would sync fine, but its server-side quantity
+    // stayed 0 forever. Queue the same adjustStock command the "تعديل
+    // الرصيد" button already uses successfully, so the opening balance
+    // becomes a real stock movement once this syncs.
+    if (openingQuantity != 0) {
+      await _store.queueCommand(
+        commandId: _newId('cmd-stock'),
+        command: 'adjustStock',
+        payload: {'product_id': product.id, 'delta': openingQuantity, 'reason': 'رصيد افتتاحي'},
+      );
+    }
     return product;
   }
 

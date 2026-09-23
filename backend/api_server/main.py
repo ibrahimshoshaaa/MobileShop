@@ -137,8 +137,10 @@ class _LoginError(Exception):
 
 
 _DEV_LOGIN_USERS = {
-    "owner@dev.local": {"password": "dev1234", "token": "dev-owner-token", "display_name": "مدير النظام"},
-    "cashier@dev.local": {"password": "dev1234", "token": "dev-cashier-token", "display_name": "كاشير"},
+    # nosec B105 -- dev-sandbox credentials only, not real secrets; main.py
+    # refuses to start with AUTH_PROVIDER=dev when APP_ENV=production.
+    "owner@dev.local": {"password": "dev1234", "token": "dev-owner-token", "display_name": "مدير النظام"},  # nosec B105
+    "cashier@dev.local": {"password": "dev1234", "token": "dev-cashier-token", "display_name": "كاشير"},  # nosec B105
 }
 
 

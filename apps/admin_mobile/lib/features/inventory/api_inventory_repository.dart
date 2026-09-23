@@ -80,6 +80,6 @@ class ApiInventoryRepository implements InventoryRepository {
   Future<Product> updateProduct(Product product) => _local.updateProduct(product);
 
   @override
-  Future<Product> adjustStock(String productId, int delta, String reason) =>
-      _local.adjustStock(productId, delta, reason);
+  Future<Product> adjustStock(String productId, int delta, String reason, {bool queueSync = true}) =>
+      _local.adjustStock(productId, delta, reason, queueSync: queueSync);
 }

@@ -103,6 +103,25 @@ def test_dispatch_create_product_flat_payload():
     assert product.name == "سماعة"
 
 
+def test_create_product_keeps_client_id_so_opening_stock_can_reference_it():
+    """Offline clients generate the product id locally and queue an adjustStock
+    (opening balance) that references it. The server must store the product
+    under that id — previously it used the command id, so adjustStock failed
+    with NOT_FOUND."""
+    from shared.contracts.errors import DomainError
+    import pytest
+    e = ERPCommandEngine()
+    perms = {"products.edit", "stock.adjust"}
+    product = dispatch(e, "createProduct", ctx("cmd-create-1", perms), id="p-1",
+                       name="x", sku="S1", product_type="ACCESSORY")
+    assert product.id == "p-1"
+    dispatch(e, "adjustStock", ctx("cmd-stock-1", perms), product_id="p-1", delta=5, reason="opening")
+    with pytest.raises(DomainError) as exc:
+        dispatch(e, "createProduct", ctx("cmd-create-2", perms), id="p-1",
+                 name="y", sku="S2", product_type="ACCESSORY")
+    assert exc.value.code == "DUPLICATE_PRODUCT"
+
+
 def test_http_handle_create_product_end_to_end():
     e = ERPCommandEngine()
 

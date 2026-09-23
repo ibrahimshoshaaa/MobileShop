@@ -175,7 +175,8 @@ class SqliteMaintenanceRepository implements MaintenanceRepository {
 
     // Decrement stock the same way Sales does — insufficient-stock check
     // happens inside adjustStock itself.
-    await _inventory.adjustStock(productId, -quantity, 'استخدام في صيانة #$ticketId');
+    // Local stock only: the server's useMaintenancePart already deducts stock itself.
+    await _inventory.adjustStock(productId, -quantity, 'استخدام في صيانة #$ticketId', queueSync: false);
 
     final usage = MaintenancePartUsage(
       id: _newId('mntpart'), ticketId: ticketId, productId: productId, productName: productName,
@@ -233,12 +234,14 @@ class SqliteMaintenanceRepository implements MaintenanceRepository {
       entity: _ticketEntity, recordId: ticketId, payload: _ticketPayload(updated), expectedVersion: current.version,
     );
     final deliverCmdId = _newId('cmd-mnt-deliver');
+    final walletId = BuiltinWallets.tryFromWireValue(method.wireValue)?.id;
+    final serverWalletId = serverWalletRefForMethod(method.wireValue);
+    // Queue the wallet reference the server knows, not the payment-method name.
     await _store.queueCommand(
       commandId: deliverCmdId,
       command: 'deliverMaintenanceTicket',
-      payload: {'ticket_id': ticketId, 'final_price': finalPrice, 'payment': payment, 'wallet_id': method.wireValue},
+      payload: {'ticket_id': ticketId, 'final_price': finalPrice, 'payment': payment, 'wallet_id': serverWalletId},
     );
-    final walletId = BuiltinWallets.tryFromWireValue(method.wireValue)?.id;
     // Server only requires a wallet when payment > 0 (see
     // deliver_maintenance in completion.py); with no payment, wallet_id can
     // be omitted entirely, so a CARD/CREDIT delivery with payment 0 is
@@ -246,12 +249,12 @@ class SqliteMaintenanceRepository implements MaintenanceRepository {
     // wallet to attribute it to (same limitation as sales/expenses above),
     // so that combination is skipped — same as the local wallet posting
     // just below, gated on the same condition.
-    if (payment == 0 || walletId != null) {
+    if (payment == 0 || serverWalletId != null) {
       await pushCommandOnline(_store, deliverCmdId, 'deliverMaintenanceTicket', {
         'ticket_id': ticketId,
         'final_price': finalPrice,
         'payment': payment,
-        'wallet_id': walletId,
+        'wallet_id': serverWalletId,
       });
     }
     if (walletId != null && payment > 0) {

@@ -20,7 +20,11 @@ abstract class InventoryRepository {
     required int openingQuantity,
   });
   Future<Product> updateProduct(Product product);
-  Future<Product> adjustStock(String productId, int delta, String reason);
+  /// [queueSync] = false applies the change to the LOCAL stock only, without
+  /// queuing/pushing an `adjustStock` command. Use it when another command
+  /// (createSale / voidSale / useMaintenancePart) already moves the same
+  /// stock on the server — queuing both would apply it twice.
+  Future<Product> adjustStock(String productId, int delta, String reason, {bool queueSync = true});
 }
 
 class InMemoryInventoryRepository implements InventoryRepository {
@@ -148,7 +152,7 @@ class InMemoryInventoryRepository implements InventoryRepository {
   }
 
   @override
-  Future<Product> adjustStock(String productId, int delta, String reason) async {
+  Future<Product> adjustStock(String productId, int delta, String reason, {bool queueSync = true}) async {
     await Future.delayed(_latency);
     final idx = _products.indexWhere((p) => p.id == productId);
     if (idx == -1) throw InventoryException('الصنف غير موجود.');

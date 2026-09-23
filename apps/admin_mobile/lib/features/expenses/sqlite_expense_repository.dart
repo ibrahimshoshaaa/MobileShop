@@ -66,17 +66,18 @@ class SqliteExpenseRepository implements ExpenseRepository {
     // Reuses expense.id as the command id, same reasoning as createSale in
     // sqlite_sale_repository.dart — so a successful online push below
     // leaves the server's Expense record under this same id.
+    final walletId = BuiltinWallets.tryFromWireValue(method.wireValue)?.id;
+    // Queue the real wallet id (what the server knows), not the payment-method name.
     await _store.queueCommand(
       commandId: expense.id,
       command: 'createExpense',
       payload: {
-        'wallet_id': method.wireValue,
+        'wallet_id': walletId ?? method.wireValue,
         'amount': amount,
         'category': category,
         'note': expense.note,
       },
     );
-    final walletId = BuiltinWallets.tryFromWireValue(method.wireValue)?.id;
     // 4.3: server's createExpense (unlike the local model) has no CARD/
     // CREDIT concept — an expense must come out of an actual wallet
     // balance it can check (`self._balance(wallet_id)<amount` in

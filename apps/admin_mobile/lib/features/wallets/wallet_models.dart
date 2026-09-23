@@ -137,3 +137,14 @@ class WalletException implements Exception {
   @override
   String toString() => message;
 }
+
+/// The wallet reference the SERVER understands for a payment method, or null
+/// when that method has no wallet on the server (credit = an on-account
+/// receivable). Cash/wallet map to the built-in wallets; card maps to the
+/// branch's card/bank wallet. The server resolves these fixed names to the
+/// branch's real wallets (creating them on first use), so the app never has to
+/// create wallets itself. Card settles to a bank account, so it is only sent
+/// for money coming IN (sales, maintenance delivery, installment collection) —
+/// the local wallet ledger deliberately still skips it (see BuiltinWallets).
+String? serverWalletRefForMethod(String wireValue) =>
+    BuiltinWallets.tryFromWireValue(wireValue)?.id ?? (wireValue == 'CARD' ? 'wallet-card' : null);

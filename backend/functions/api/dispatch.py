@@ -1,10 +1,93 @@
 from shared.contracts.errors import DomainError
 
+# ---------------------------------------------------------------------------
+# Built-in wallet aliases.
+#
+# The mobile app has no wallet ids of its own on the server: it refers to its
+# built-in wallets by the fixed names 'wallet-cash' / 'wallet-wallet' /
+# 'wallet-card' (older builds sent the payment-method names 'CASH' / 'WALLET' /
+# 'CARD' instead). Ids must be unique per tenant, so a fixed id can't be the
+# real wallet id in a multi-branch tenant. Instead the server resolves each
+# alias to *the caller's own branch's* wallet of that type, creating it the
+# first time it is needed (a plain default drawer/wallet/bank, no user input).
+# ---------------------------------------------------------------------------
+_WALLET_ALIASES = {
+    'wallet-cash': ('CASH', 'الخزنة (الدرج)'), 'CASH': ('CASH', 'الخزنة (الدرج)'),
+    'wallet-wallet': ('WALLET', 'المحفظة'), 'WALLET': ('WALLET', 'المحفظة'),
+    'wallet-card': ('BANK', 'البطاقة (البنك)'), 'CARD': ('BANK', 'البطاقة (البنك)'),
+}
+# Payment methods that never touch a wallet (an on-account/credit sale is just a receivable).
+_NON_WALLET_METHODS = {'CREDIT'}
+
+
+def _resolve_wallet(engine, ctx, ref):
+    """Map a built-in wallet alias to this branch's real wallet id, provisioning it if missing."""
+    spec = _WALLET_ALIASES.get(ref) if isinstance(ref, str) else None
+    if spec is None:
+        return ref
+    wallet_type, display_name = spec
+
+    def _find_or_create():
+        exact = engine.wallets.get(ref)
+        if exact is not None and exact.branch_id == ctx.branch_id:
+            return exact.id
+        for w in engine.wallets.all():
+            if w.branch_id == ctx.branch_id and str(w.wallet_type).upper() == wallet_type and w.active:
+                return w.id
+        from shared.models.erp import Wallet
+        wallet = Wallet(id=f'{ctx.branch_id}:{wallet_type.lower()}', branch_id=ctx.branch_id,
+                        name=display_name, wallet_type=wallet_type)
+        engine._put(engine.wallets, wallet)
+        return wallet.id
+
+    return engine.transaction(_find_or_create)
+
+
+def _normalize_payments(engine, ctx, payments):
+    """Server-shaped payments ({'wallet_id', 'amount'}), accepting the legacy
+    {'method', 'amount'} shape too. Credit lines are dropped (they are the receivable)."""
+    out = []
+    for p in payments or ():
+        p = dict(p)
+        if 'wallet_id' not in p:
+            method = str(p.get('method', '')).upper()
+            if method in _NON_WALLET_METHODS:
+                continue
+            p['wallet_id'] = method
+        p.pop('method', None)
+        p['wallet_id'] = _resolve_wallet(engine, ctx, p['wallet_id'])
+        out.append(p)
+    return out
+
+
+# Stock changes the *old* mobile build queued as a separate adjustStock next to
+# createSale / voidSale / useMaintenancePart. Those commands already move stock
+# on the server, so replaying the extra one would apply the change twice.
+import re as _re
+_LEGACY_DERIVED_STOCK_REASON = _re.compile(r'^((بيع|إلغاء) فاتورة #sale-[\w-]+|استخدام في صيانة #\S+)$')
+
+
 def dispatch(engine, command_name, command, **payload):
     name = command_name
     mapping={'createSale':'create_sale','returnSale':'return_sale','voidSale':'void_sale','createPurchase':'create_purchase','paySupplier':'pay_supplier','createExpense':'create_expense','createTransfer':'transfer_customer','transferBetweenWallets':'transfer_between_wallets','createInstallmentPlan':'create_installment_plan','collectInstallment':'collect_installment','createMaintenanceTicket':'create_maintenance_ticket','useMaintenancePart':'use_maintenance_part','deliverMaintenanceTicket':'deliver_maintenance','adjustStock':'adjust_stock','transferStock':'transfer_stock','closeDay':'close_day','adjustWallet':'adjust_wallet','changePermission':'set_permission','collectCustomer':'collect_customer','createProduct':'create_product','updateProduct':'update_product','createCustomer':'create_customer','updateCustomer':'update_customer','createSupplier':'create_supplier','updateSupplier':'update_supplier','createWallet':'create_wallet','createBranch':'create_branch','createRole':'create_role','createUserProfile':'create_user_profile','updateUserAccess':'update_user_access'}
     fn=mapping.get(name)
     if not fn or not hasattr(engine,fn): raise DomainError('INVALID_INPUT','الأمر غير مدعوم.',{'command':name})
+    if name == 'adjustStock' and _LEGACY_DERIVED_STOCK_REASON.match(str(payload.get('reason', ''))):
+        return {'skipped': True, 'reason': 'LEGACY_DERIVED_STOCK_ADJUSTMENT'}
+    if name == 'createSale':
+        payload['payments'] = _normalize_payments(engine, command, payload.get('payments'))
+    elif name in ('createExpense', 'collectInstallment', 'deliverMaintenanceTicket') and payload.get('wallet_id'):
+        payload['wallet_id'] = _resolve_wallet(engine, command, payload['wallet_id'])
+    elif name == 'createInstallmentPlan':
+        # Older builds queued the local plan shape (extra keys, no down_payment);
+        # keep only what the server understands.
+        payload = {k: payload[k] for k in ('sale_id', 'customer_id', 'down_payment', 'rate_percent',
+                                           'term_months', 'down_payment_wallet_id') if k in payload}
+        payload.setdefault('down_payment', 0)
+        if not payload.get('sale_id'):
+            raise DomainError('INVALID_INPUT', 'خطة التقسيط تتطلب فاتورة مرتبطة.', {})
+        if payload.get('down_payment_wallet_id'):
+            payload['down_payment_wallet_id'] = _resolve_wallet(engine, command, payload['down_payment_wallet_id'])
     # Some commands have richer immutable contracts than a bare context.
     if name == 'createSale':
         from shared.contracts.commands import CreateSaleCommand
@@ -30,8 +113,11 @@ def dispatch(engine, command_name, command, **payload):
         from decimal import Decimal
         from shared.models.erp import Product
         data = payload.get('product', payload)
+        # Honour the client-generated product id: offline clients queue follow-up
+        # commands (e.g. the opening-stock adjustStock) that reference it, so the
+        # server must store the product under that same id, not the command id.
         product = Product(
-            id=command.command_id, name=data['name'], sku=data['sku'], product_type=data['product_type'],
+            id=data.get('id') or command.command_id, name=data['name'], sku=data['sku'], product_type=data['product_type'],
             barcode=data.get('barcode'), selling_price=Decimal(str(data.get('selling_price', 0))),
             default_cost=Decimal(str(data.get('default_cost', 0))), warranty_days=int(data.get('warranty_days', 0)),
             reorder_level=Decimal(str(data.get('reorder_level', 0))), active=bool(data.get('active', True)),
@@ -40,13 +126,13 @@ def dispatch(engine, command_name, command, **payload):
     elif name == 'createCustomer':
         from shared.models.erp import Customer
         data = payload.get('customer', payload)
-        customer = Customer(id=command.command_id, name=data['name'], phone=data.get('phone'), active=bool(data.get('active', True)))
+        customer = Customer(id=data.get('id') or command.command_id, name=data['name'], phone=data.get('phone'), active=bool(data.get('active', True)))
         payload = {'customer': customer}
     elif name == 'createSupplier':
         from shared.models.erp import Supplier
         data = payload.get('supplier', payload)
         supplier = Supplier(
-            id=command.command_id, name=data['name'], phone=data.get('phone'),
+            id=data.get('id') or command.command_id, name=data['name'], phone=data.get('phone'),
             branch_ids=tuple(data.get('branch_ids', ())), active=bool(data.get('active', True)),
         )
         payload = {'supplier': supplier}
@@ -70,10 +156,16 @@ def dispatch(engine, command_name, command, **payload):
             'permissions': tuple(payload.get('permissions', ())),
         }
     elif name in ('updateCustomer', 'updateSupplier'):
-        entity_id = payload.get('customer_id') if name == 'updateCustomer' else payload.get('supplier_id')
-        changes = dict(payload.get('changes', {}))
-        payload = ({'customer_id': entity_id, **changes} if name == 'updateCustomer'
-                   else {'supplier_id': entity_id, **changes})
+        # Accept both the wrapped {'customer_id', 'changes': {...}} form and the
+        # flat entity payload ({'id': ..., 'name': ..., 'phone': ...}) that the
+        # mobile client sends.
+        id_key = 'customer_id' if name == 'updateCustomer' else 'supplier_id'
+        entity_id = payload.get(id_key) or payload.get('id')
+        if 'changes' in payload:
+            changes = dict(payload['changes'])
+        else:
+            changes = {k: payload[k] for k in ('name', 'phone', 'active') if k in payload}
+        payload = {id_key: entity_id, **changes}
     elif name == 'createWallet':
         # branch_id defaults to the caller's own branch and, even if a
         # client explicitly supplies a different one, create_wallet() in
@@ -112,15 +204,21 @@ def dispatch(engine, command_name, command, **payload):
         # update_product(self, command, product_id, **changes) uses
         # dataclasses.replace(), so `changes` values must already be the
         # right domain types (Decimal for money fields) — plain JSON
-        # numbers/strings aren't coerced automatically. Requires the
-        # wrapped {'changes': {...}} form (not a flat payload) because a
-        # product rename would otherwise send a top-level 'name' key,
-        # which collides with dispatch()'s own 'name' parameter exactly
-        # like createProduct/createCustomer/createWallet already do.
+        # numbers/strings aren't coerced automatically.
         from decimal import Decimal
-        changes = dict(payload.get('changes', {}))
+        # The mobile client sends the whole product flat ({'id': ..., 'name': ...,
+        # 'quantity': ...}), not the wrapped {'product_id', 'changes'} form.
+        # Accept both. 'quantity' is deliberately NOT an editable field: stock is
+        # derived from stock movements, never set directly.
+        product_id = payload.get('product_id') or payload.get('id')
+        if 'changes' in payload:
+            changes = dict(payload['changes'])
+        else:
+            editable = ('name', 'sku', 'product_type', 'barcode', 'selling_price',
+                        'default_cost', 'warranty_days', 'reorder_level', 'active')
+            changes = {k: payload[k] for k in editable if k in payload}
         for money_field in ('selling_price', 'default_cost', 'reorder_level'):
             if money_field in changes:
                 changes[money_field] = Decimal(str(changes[money_field]))
-        payload = {'product_id': payload['product_id'], **changes}
+        payload = {'product_id': product_id, **changes}
     return engine.transaction(lambda:getattr(engine,fn)(command,**payload))

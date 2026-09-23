@@ -2,6 +2,7 @@ import 'dart:math';
 import 'inventory_models.dart';
 import 'inventory_repository.dart';
 import 'local_store.dart';
+import '../sync/online_push.dart';
 
 /// Persists products to the on-device SQLite database instead of memory.
 /// Every mutation also queues a command in the local outbox (see
@@ -157,11 +158,16 @@ class SqliteInventoryRepository implements InventoryRepository {
       quantity: openingQuantity,
     );
     await _store.upsertRecord(entity: _entity, recordId: product.id, payload: _toPayload(product), expectedVersion: 0);
+    final createCmdId = _newId('cmd-create');
     await _store.queueCommand(
-      commandId: _newId('cmd-create'),
+      commandId: createCmdId,
       command: 'createProduct',
       payload: _toPayload(product),
     );
+    // Already saved locally above, so the product shows up immediately. Now
+    // make one best-effort attempt to sync it right away (never throws; if
+    // offline it just stays PENDING for the next sync).
+    await pushCommandOnline(_store, createCmdId, 'createProduct', _toPayload(product));
     // The server has no "quantity" field on Product — it only computes stock
     // from real StockMovement rows (see erp_engine.py's _available_qty), and
     // createProduct's payload on the server side never reads a quantity
@@ -171,11 +177,10 @@ class SqliteInventoryRepository implements InventoryRepository {
     // الرصيد" button already uses successfully, so the opening balance
     // becomes a real stock movement once this syncs.
     if (openingQuantity != 0) {
-      await _store.queueCommand(
-        commandId: _newId('cmd-stock'),
-        command: 'adjustStock',
-        payload: {'product_id': product.id, 'delta': openingQuantity, 'reason': 'رصيد افتتاحي'},
-      );
+      final stockCmdId = _newId('cmd-stock');
+      final stockPayload = {'product_id': product.id, 'delta': openingQuantity, 'reason': 'رصيد افتتاحي'};
+      await _store.queueCommand(commandId: stockCmdId, command: 'adjustStock', payload: stockPayload);
+      await pushCommandOnline(_store, stockCmdId, 'adjustStock', stockPayload);
     }
     return product;
   }
@@ -197,16 +202,14 @@ class SqliteInventoryRepository implements InventoryRepository {
     } on StaleVersionException catch (e) {
       throw InventoryException(e.toString());
     }
-    await _store.queueCommand(
-      commandId: _newId('cmd-update'),
-      command: 'updateProduct',
-      payload: _toPayload(product),
-    );
+    final updateCmdId = _newId('cmd-update');
+    await _store.queueCommand(commandId: updateCmdId, command: 'updateProduct', payload: _toPayload(product));
+    await pushCommandOnline(_store, updateCmdId, 'updateProduct', _toPayload(product));
     return product;
   }
 
   @override
-  Future<Product> adjustStock(String productId, int delta, String reason) async {
+  Future<Product> adjustStock(String productId, int delta, String reason, {bool queueSync = true}) async {
     if (reason.trim().isEmpty) throw InventoryException('يجب إدخال سبب حركة المخزون.');
     final current = await _store.getRecord(entity: _entity, recordId: productId);
     if (current == null) throw InventoryException('الصنف غير موجود.');
@@ -224,11 +227,12 @@ class SqliteInventoryRepository implements InventoryRepository {
     } on StaleVersionException catch (e) {
       throw InventoryException(e.toString());
     }
-    await _store.queueCommand(
-      commandId: _newId('cmd-stock'),
-      command: 'adjustStock',
-      payload: {'product_id': productId, 'delta': delta, 'reason': reason},
-    );
+    if (queueSync) {
+      final cmdId = _newId('cmd-stock');
+      final stockPayload = {'product_id': productId, 'delta': delta, 'reason': reason};
+      await _store.queueCommand(commandId: cmdId, command: 'adjustStock', payload: stockPayload);
+      await pushCommandOnline(_store, cmdId, 'adjustStock', stockPayload);
+    }
     return updated;
   }
 

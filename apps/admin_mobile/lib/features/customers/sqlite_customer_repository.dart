@@ -2,6 +2,7 @@ import 'dart:math';
 import '../inventory/local_store.dart';
 import 'customer_models.dart';
 import 'customer_repository.dart';
+import '../sync/online_push.dart';
 
 class SqliteCustomerRepository implements CustomerRepository {
   SqliteCustomerRepository._(this._store);
@@ -56,11 +57,9 @@ class SqliteCustomerRepository implements CustomerRepository {
     }
     final customer = Customer(id: _newId(), name: name.trim(), phone: cleanPhone);
     await _store.upsertRecord(entity: _entity, recordId: customer.id, payload: _toPayload(customer), expectedVersion: 0);
-    await _store.queueCommand(
-      commandId: _newId(prefix: 'cmd-create-customer'),
-      command: 'createCustomer',
-      payload: _toPayload(customer),
-    );
+    final createCmdId = _newId(prefix: 'cmd-create-customer');
+    await _store.queueCommand(commandId: createCmdId, command: 'createCustomer', payload: _toPayload(customer));
+    await pushCommandOnline(_store, createCmdId, 'createCustomer', _toPayload(customer));
     return customer;
   }
 
@@ -84,11 +83,9 @@ class SqliteCustomerRepository implements CustomerRepository {
     } on StaleVersionException catch (e) {
       throw CustomerException(e.toString());
     }
-    await _store.queueCommand(
-      commandId: _newId(prefix: 'cmd-update-customer'),
-      command: 'updateCustomer',
-      payload: _toPayload(customer),
-    );
+    final updateCmdId = _newId(prefix: 'cmd-update-customer');
+    await _store.queueCommand(commandId: updateCmdId, command: 'updateCustomer', payload: _toPayload(customer));
+    await pushCommandOnline(_store, updateCmdId, 'updateCustomer', _toPayload(customer));
     return customer;
   }
 

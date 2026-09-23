@@ -26,45 +26,49 @@ def seed_dev_data(engine) -> None:
                     permissions=("branches.read","branches.manage","users.read","users.manage","roles.read","roles.manage"),
                 ), tenant_id="dev-tenant")
 
-            engine.products.create(
-                "demo-product-1",
-                Product(
-                    id="demo-product-1",
-                    name="منتج تجريبي",
-                    sku="DEMO-1",
-                    product_type="ACCESSORY",
-                    selling_price=Decimal("100"),
-                    default_cost=Decimal("60"),
-                ),
-                tenant_id="dev-tenant",
-            )
-            engine.stock.create(
-                "seed-stock-1",
-                StockMovement(
-                    id="seed-stock-1",
-                    branch_id=branch_id,
-                    product_id="demo-product-1",
-                    quantity=Decimal("50"),
-                    movement_type="OPENING_BALANCE",
-                    reference_id="dev-seed",
-                ),
-                tenant_id="dev-tenant",
-            )
-            engine.wallets.create(
-                "demo-wallet-cash",
-                Wallet(
-                    id="demo-wallet-cash",
-                    branch_id=branch_id,
-                    name="الخزينة النقدية",
-                    wallet_type="CASH",
-                ),
-                tenant_id="dev-tenant",
-            )
-            engine.customers.create(
-                "demo-customer-1",
-                Customer(id="demo-customer-1", name="عميل تجريبي"),
-                tenant_id="dev-tenant",
-            )
+            if engine.products.get("demo-product-1") is None:
+                engine.products.create(
+                    "demo-product-1",
+                    Product(
+                        id="demo-product-1",
+                        name="منتج تجريبي",
+                        sku="DEMO-1",
+                        product_type="ACCESSORY",
+                        selling_price=Decimal("100"),
+                        default_cost=Decimal("60"),
+                    ),
+                    tenant_id="dev-tenant",
+                )
+            if engine.stock.get("seed-stock-1") is None:
+                engine.stock.create(
+                    "seed-stock-1",
+                    StockMovement(
+                        id="seed-stock-1",
+                        branch_id=branch_id,
+                        product_id="demo-product-1",
+                        quantity=Decimal("50"),
+                        movement_type="OPENING_BALANCE",
+                        reference_id="dev-seed",
+                    ),
+                    tenant_id="dev-tenant",
+                )
+            if engine.wallets.get("demo-wallet-cash") is None:
+                engine.wallets.create(
+                    "demo-wallet-cash",
+                    Wallet(
+                        id="demo-wallet-cash",
+                        branch_id=branch_id,
+                        name="الخزينة النقدية",
+                        wallet_type="CASH",
+                    ),
+                    tenant_id="dev-tenant",
+                )
+            if engine.customers.get("demo-customer-1") is None:
+                engine.customers.create(
+                    "demo-customer-1",
+                    Customer(id="demo-customer-1", name="عميل تجريبي"),
+                    tenant_id="dev-tenant",
+                )
 
         engine.transaction(_seed)
     finally:

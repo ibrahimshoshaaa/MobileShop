@@ -19,6 +19,7 @@ def install_completion(engine_cls):
             for p in self.products.all():
                 if p.sku==product.sku or (product.barcode and p.barcode==product.barcode):
                     raise DomainError('DUPLICATE_PRODUCT','SKU أو Barcode مستخدم بالفعل.',{})
+            if self.products.get(product.id): raise DomainError('DUPLICATE_PRODUCT','معرّف المنتج مستخدم بالفعل.',{})
             self._put(self.products,product); self._audit(ctx,'CREATE_PRODUCT',product.id); self._processed[ctx.idempotency_key]=product; return product
     def update_product(self, command, product_id, **changes):
         ctx=command.context if hasattr(command,'context') else command
@@ -110,12 +111,14 @@ def install_completion(engine_cls):
         with self._lock:
             self._auth(ctx,'customers.edit'); old=self._idem(ctx)
             if old:return old
+            if self.customers.get(customer.id): raise DomainError('DUPLICATE_CUSTOMER','المعرّف مستخدم بالفعل.',{})
             self._put(self.customers,customer); self._audit(ctx,'CREATE_CUSTOMER',customer.id); self._processed[ctx.idempotency_key]=customer; return customer
     def create_supplier(self, command, supplier):
         ctx=command.context if hasattr(command,'context') else command
         with self._lock:
             self._auth(ctx,'suppliers.edit'); old=self._idem(ctx)
             if old:return old
+            if self.suppliers.get(supplier.id): raise DomainError('DUPLICATE_SUPPLIER','المعرّف مستخدم بالفعل.',{})
             self._put(self.suppliers,supplier); self._audit(ctx,'CREATE_SUPPLIER',supplier.id); self._processed[ctx.idempotency_key]=supplier; return supplier
     def update_customer(self, command, customer_id, **changes):
         ctx=command.context if hasattr(command,'context') else command

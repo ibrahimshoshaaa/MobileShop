@@ -2,6 +2,7 @@ import 'dart:math';
 import '../inventory/local_store.dart';
 import 'supplier_models.dart';
 import 'supplier_repository.dart';
+import '../sync/online_push.dart';
 
 class SqliteSupplierRepository implements SupplierRepository {
   SqliteSupplierRepository._(this._store);
@@ -51,11 +52,9 @@ class SqliteSupplierRepository implements SupplierRepository {
     }
     final supplier = Supplier(id: _newId(), name: name.trim(), phone: cleanPhone);
     await _store.upsertRecord(entity: _entity, recordId: supplier.id, payload: _toPayload(supplier), expectedVersion: 0);
-    await _store.queueCommand(
-      commandId: _newId(prefix: 'cmd-create-supplier'),
-      command: 'createSupplier',
-      payload: _toPayload(supplier),
-    );
+    final createCmdId = _newId(prefix: 'cmd-create-supplier');
+    await _store.queueCommand(commandId: createCmdId, command: 'createSupplier', payload: _toPayload(supplier));
+    await pushCommandOnline(_store, createCmdId, 'createSupplier', _toPayload(supplier));
     return supplier;
   }
 

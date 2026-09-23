@@ -103,10 +103,20 @@ class SqliteInstallmentRepository implements InstallmentRepository {
     // sqlite_sale_repository.dart — so a successful online push leaves the
     // server's InstallmentPlan under this same id, which collectPayment
     // below relies on when it later references [planId].
+    // Server shape when the plan is server-creatable (see the note below);
+    // otherwise keep the local shape, as before (there is nothing correct to send).
+    final planPushable = saleId != null && downPayment == 0;
+    final serverPlanPayload = {
+      'sale_id': saleId,
+      'customer_id': customerId,
+      'down_payment': downPayment,
+      'rate_percent': ratePercent,
+      'term_months': termMonths,
+    };
     await _store.queueCommand(
       commandId: plan.id,
       command: 'createInstallmentPlan',
-      payload: _planPayload(plan),
+      payload: planPushable ? serverPlanPayload : _planPayload(plan),
     );
     // 4.3: only pushable when both are true —
     //  - saleId != null: create_installment_plan on the server always
@@ -121,14 +131,8 @@ class SqliteInstallmentRepository implements InstallmentRepository {
     //    down-payment-wallet field at all (createPlan's signature has no
     //    [PaymentMethod] parameter for it), so there's nothing correct to
     //    send when a down payment was actually taken.
-    if (saleId != null && downPayment == 0) {
-      await pushCommandOnline(_store, plan.id, 'createInstallmentPlan', {
-        'sale_id': saleId,
-        'customer_id': customerId,
-        'down_payment': downPayment,
-        'rate_percent': ratePercent,
-        'term_months': termMonths,
-      });
+    if (planPushable) {
+      await pushCommandOnline(_store, plan.id, 'createInstallmentPlan', serverPlanPayload);
     }
     return plan;
   }
@@ -178,13 +182,15 @@ class SqliteInstallmentRepository implements InstallmentRepository {
       payload: _paymentPayload(payment),
       expectedVersion: 0,
     );
+    final collectWalletId = serverWalletRefForMethod(method.wireValue);
+    // Queue the real wallet id (what the server knows), not the payment-method name.
     await _store.queueCommand(
       commandId: payment.id,
       command: 'collectInstallment',
       payload: {
         'installment_id': planId,
         'amount': amount,
-        'wallet_id': method.wireValue,
+        'wallet_id': collectWalletId ?? method.wireValue,
       },
     );
     // Same CASH/WALLET-only constraint as sales/expenses above: the server
@@ -195,12 +201,11 @@ class SqliteInstallmentRepository implements InstallmentRepository {
     // saleId set and no down payment) — otherwise the server 404s on
     // [planId] and this is silently left queued, same as any other
     // best-effort push.
-    final walletId = BuiltinWallets.tryFromWireValue(method.wireValue)?.id;
-    if (walletId != null) {
+    if (collectWalletId != null) {
       await pushCommandOnline(_store, payment.id, 'collectInstallment', {
         'installment_id': planId,
         'amount': amount,
-        'wallet_id': walletId,
+        'wallet_id': collectWalletId,
       });
     }
     return payment;

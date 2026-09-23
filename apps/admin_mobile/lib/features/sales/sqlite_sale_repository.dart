@@ -202,7 +202,8 @@ class SqliteSalesRepository implements SalesRepository {
 
     final saleId = _newId('sale');
     for (final item in itemsWithCost) {
-      await _inventory.adjustStock(item.productId, -item.quantity, 'بيع فاتورة #$saleId');
+      // Local stock only: the server's createSale already deducts stock itself.
+      await _inventory.adjustStock(item.productId, -item.quantity, 'بيع فاتورة #$saleId', queueSync: false);
     }
 
     final sale = SaleRecord(
@@ -225,16 +226,22 @@ class SqliteSalesRepository implements SalesRepository {
     // `command.command_id`) — local and server agree on what this sale is
     // called from the moment it's created, which voidSale below (and any
     // future download-sync in 5.2) relies on.
+    // The queued payload is the exact server shape (same one pushed below), so
+    // an offline sale replays correctly later. It used to queue the local
+    // shape (payments keyed by 'method'), which the server can't apply.
+    final serverSalePayload = {
+      'customer_id': customerId,
+      'items': [
+        for (final item in itemsWithCost)
+          {'product_id': item.productId, 'quantity': item.quantity, 'unit_price': item.unitPrice},
+      ],
+      'payments': _serverPayments(payments),
+      'discount': discount,
+    };
     await _store.queueCommand(
       commandId: saleId,
       command: 'createSale',
-      payload: {
-        'customer_id': customerId,
-        'customer_name': customerName,
-        'items': itemsWithCost.map(_itemToPayload).toList(),
-        'payments': payments.map(_paymentToPayload).toList(),
-        'discount': discount,
-      },
+      payload: serverSalePayload,
     );
     // 4.3: push straight to the server too, best effort, on top of the
     // outbox row just queued above (unchanged — still there for 5.1).
@@ -247,15 +254,7 @@ class SqliteSalesRepository implements SalesRepository {
     // if that drops the paid total below the invoice total, the server
     // treats the gap as a receivable exactly like a partial/credit sale —
     // and rejects it if there's no customer to owe it, same as locally.
-    await pushCommandOnline(_store, saleId, 'createSale', {
-      'customer_id': customerId,
-      'items': [
-        for (final item in itemsWithCost)
-          {'product_id': item.productId, 'quantity': item.quantity, 'unit_price': item.unitPrice},
-      ],
-      'payments': _serverPayments(payments),
-      'discount': discount,
-    });
+    await pushCommandOnline(_store, saleId, 'createSale', serverSalePayload);
     await _postWalletEntries(sale.payments, WalletTxType.sale, 'فاتورة بيع #$saleId', reversed: false);
     return sale;
   }
@@ -266,8 +265,8 @@ class SqliteSalesRepository implements SalesRepository {
   /// never disagree about which payments "count" as wallet money.
   List<Map<String, dynamic>> _serverPayments(List<PaymentEntry> payments) => [
         for (final p in payments)
-          if (BuiltinWallets.tryFromWireValue(p.method.wireValue) != null)
-            {'wallet_id': BuiltinWallets.tryFromWireValue(p.method.wireValue)!.id, 'amount': p.amount},
+          if (serverWalletRefForMethod(p.method.wireValue) != null)
+            {'wallet_id': serverWalletRefForMethod(p.method.wireValue)!, 'amount': p.amount},
       ];
 
   /// Cash/wallet payment lines move real money, so they post to the wallet
@@ -298,7 +297,8 @@ class SqliteSalesRepository implements SalesRepository {
 
     for (final item in sale.items) {
       try {
-        await _inventory.adjustStock(item.productId, item.quantity, 'إلغاء فاتورة #$saleId');
+        // Local stock only: the server's voidSale already restores stock itself.
+        await _inventory.adjustStock(item.productId, item.quantity, 'إلغاء فاتورة #$saleId', queueSync: false);
       } on InventoryException {
         // Product may have been deleted since the sale — stock can't be
         // restored to something that no longer exists. Voiding still

@@ -265,7 +265,34 @@ flutter run
 - `lib/features/settings/settings_page.dart:143` — `if (mounted) setState(...)` من غير قوسين حوالين جسم الـ if (`curly_braces_in_flow_control_structures`) → اتحطّت `{ }` صريحة.
 - `lib/features/sync/download_queue.dart:128` — متغيّر محلي `version` (مستخرج من `change['cursor']`) متعرّفش وميتستخدمش خالص جوا `_applyChange` (`unused_local_variable`) — الكود فعليًا بيمشي بسياسة "السيرفر دايمًا أحق" (`expectedVersion: null`)، فمفيش داعي للمتغيّر أصلًا → اتشال مع تعليقه.
 
-- [ ] 5.3 Sync Dashboard (Pending Commands / Last Sync / Sync Errors / Conflict Count) — نسخة مبسّطة موجودة بالفعل من 5.1 (فوق)، ده لو احتجنا شاشة مخصصة أوسع.
+- [x] 5.3 Sync Dashboard (Pending Commands / Last Sync / Sync Errors / Conflict Count) ✅ — شاشة مخصصة كاملة.
+
+**اللي اتعمل فعليًا:**
+- **شاشة جديدة `SyncDashboardPage`** (`apps/admin_mobile/lib/features/sync/sync_dashboard_page.dart`) — مش بديلة للملخّص المبسّط في الإعدادات، دي شاشة كاملة توصّلها من زرار "لوحة تفاصيل المزامنة" الجديد جوا "الحساب السحابي". فيها:
+  - 4 كروت ملخّص: **عمليات معلّقة** (`pendingCommandCount`)، **آخر مزامنة** (وقت نسبي زي "منذ 5 دقائق")، **تعارضات** (`conflictCount` — جديد)، **عمليات فاشلة** (محسوبة من نفس قائمة `terminalFailures` بفلترة `status == 'FAILED'`).
+  - زرار "مزامنة الآن" بحاله (نفس منطق الإعدادات بالظبط، عبر `SyncRunner`).
+  - قائمة كاملة (مش أول عنصر بس زي الإعدادات) لكل عمليات `CONFLICT`/`FAILED`، كل واحدة باسم الأمر، رسالة الخطأ، وشارة ملوّنة (برتقالي لتعارض، أحمر لفشل).
+  - Pull-to-refresh + زرار تحديث في الـ AppBar.
+- **`SyncRunner` (ملف جديد `sync_runner.dart`)** — يجمع دورة Upload ثم Download في مكان واحد، وبيسجّل "آخر مزامنة" في `kv` بس لو فعليًا اتكلمنا مع السيرفر (مفيش transportError) — حتى لو فيه CONFLICT/FAILED أو مفيش تغييرات خالص. ده استبدل 3 أماكن كانت بتعمل النداءين يدويًا (`main.dart` عند فتح التطبيق، و`_syncNow` في الإعدادات)، فبقى مصدر واحد لتوقيت آخر مزامنة بدل ما كل مكان يتتبعه (أو ينساه) لوحده.
+  - **تصحيح جانبي اكتشفته أثناء التوحيد:** `main.dart` كان بيعمل `unawaited(UploadQueue...)` و`unawaited(DownloadQueue...)` **مستقلين عن بعض** رغم إن التعليق بيقول "بعد الـ upload" — يعني الـ Download كان بيتسابق مع الـ Upload بدل ما ينتظره. دلوقتي `SyncRunner.run()` بيعملهم بالترتيب الصحيح فعليًا.
+- **إضافات لـ `LocalStore`**: `conflictCount()` (عدّاد مستقل لـ `CONFLICT` عن `FAILED`)، `getLastSyncAt`/`saveLastSyncAt`/`resetLastSyncAt` (مخزّنين في جدول `kv` الموجود أصلًا، زي `sync_cursor` بالظبط)، و`terminalFailures` بقى بياخد `limit` اختياري بدل ما يكون مقفول على 50 دايمًا.
+- **`sync_time_format.dart` (ملف جديد)** — دالة واحدة `formatSyncTime(DateTime?)` بترجع نص عربي نسبي ("الآن"، "منذ 5 دقائق"، "منذ ساعتين"، "في 12/09/2026") من غير أي حزمة `intl` — نفس فلسفة "stdlib بس" في `api_client.dart`.
+- **تسجيل الخروج** دلوقتي بيمسح `last_sync_at` كمان (مش الـ cursor بس) — عشان حساب جديد ميوّرثش تاريخ مزامنة يخص حساب قبله.
+- الإعدادات (`settings_page.dart`) اتحدّثت: بطاقة "لوحة تفاصيل المزامنة" جديدة بتوري ملخّص سريع (آخر مزامنة + عدد التعارضات لو فيه) وتفتح الشاشة الجديدة، وبطاقة "عمليات مرفوضة" بقت قابلة للنقر بردو وتفتح نفس الشاشة.
+
+**ملفات جديدة:**
+- `apps/admin_mobile/lib/features/sync/sync_dashboard_page.dart`
+- `apps/admin_mobile/lib/features/sync/sync_runner.dart`
+- `apps/admin_mobile/lib/features/sync/sync_time_format.dart`
+
+**ملفات معدّلة:**
+- `apps/admin_mobile/lib/features/inventory/local_store.dart`
+- `apps/admin_mobile/lib/features/settings/settings_page.dart`
+- `apps/admin_mobile/lib/main.dart`
+
+> ⚠️ نفس التنويه المتكرر: مفيش Flutter SDK ولا إنترنت في البيئة دي، فمقدرتش أشغّل `flutter analyze`/`flutter run` فعليًا ولا أشوف الشاشة الجديدة بصريًا. عملت فحص توازن الأقواس على كل ملف جديد/معدّل، وراجعت كل استدعاء قديم لـ `UploadQueue`/`DownloadQueue` في المشروع كله للتأكد إن الاستبدال بـ `SyncRunner` مغطّي كل حالات الاستخدام. لازم تتأكد بـ `flutter pub get && flutter analyze && flutter run`، وتجرب تسجيل دخول حقيقي وتشوف الشاشة الجديدة وهي بتعرض بيانات صحيحة.
+
+**النتيجة:** ✔ شاشة مخصصة كاملة لتفاصيل المزامنة، تقدر منها تشوف كل عملية اترفضت وليه، بدل ما تشوف بس أول عملية زي الإعدادات القديمة.
 
 ---
 

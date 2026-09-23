@@ -10,8 +10,9 @@ import '../auth/auth_models.dart';
 import '../auth/auth_service.dart';
 import '../auth/login_page.dart';
 import '../inventory/local_store.dart';
-import '../sync/upload_queue.dart';
-import '../sync/download_queue.dart';
+import '../sync/sync_runner.dart';
+import '../sync/sync_time_format.dart';
+import 'sync_dashboard_page.dart';
 
 class SettingsPage extends StatefulWidget {
   const SettingsPage({super.key, this.onSessionChanged});
@@ -27,6 +28,8 @@ class _SettingsPageState extends State<SettingsPage> {
   bool _busy = false;
   AccountSession? _session;
   int _pendingCount = 0;
+  int _conflictCount = 0;
+  DateTime? _lastSyncAt;
   bool _syncing = false;
   List<({String commandId, String command, String status, String? error})> _syncFailures = const [];
 
@@ -40,10 +43,14 @@ class _SettingsPageState extends State<SettingsPage> {
   Future<void> _refreshSyncStatus() async {
     final store = await LocalStore.open();
     final count = await store.pendingCommandCount();
+    final conflicts = await store.conflictCount();
+    final lastSync = await store.getLastSyncAt();
     final failures = await store.terminalFailures();
     if (!mounted) return;
     setState(() {
       _pendingCount = count;
+      _conflictCount = conflicts;
+      _lastSyncAt = lastSync;
       _syncFailures = failures;
     });
   }
@@ -93,9 +100,10 @@ class _SettingsPageState extends State<SettingsPage> {
     );
     if (confirmed != true || !mounted) return;
     await AuthService.instance.logout();
-    // مسح الـ cursor عشان لو دخل حساب تاني يبدأ من الأول
+    // مسح الـ cursor ووقت آخر مزامنة عشان لو دخل حساب تاني يبدأ من الأول
     final store = await LocalStore.open();
     await store.resetSyncCursor();
+    await store.resetLastSyncAt();
     setState(() => _session = null);
     widget.onSessionChanged?.call();
   }
@@ -111,30 +119,27 @@ class _SettingsPageState extends State<SettingsPage> {
     try {
       final store = await LocalStore.open();
 
-      // 5.1 — Upload: ارفع الأوامر المحلية للسيرفر أولاً
-      final uploadResult = await UploadQueue(store).drain();
-      if (!mounted) return;
-
-      // 5.2 — Download: جيب التغييرات الجديدة من السيرفر
-      final downloadResult = await DownloadQueue(store).drain();
+      // 5.1 + 5.2 عبر SyncRunner: يرفع أوامر الـ outbox المحلية للسيرفر
+      // الأول، وبعدين يجيب التغييرات الجديدة، وبيسجّل "آخر مزامنة" لو
+      // فعليًا اتكلمنا مع السيرفر (راجع SyncRunner.run لتفاصيل الشرط).
+      final result = await SyncRunner(store).run();
       if (!mounted) return;
 
       await _refreshSyncStatus();
       if (!mounted) return;
 
       // بناء رسالة الحالة
-      if (uploadResult.transportError != null || downloadResult.hasError) {
-        final err = uploadResult.transportError ?? downloadResult.transportError;
-        _showSnack('تعذّرت المزامنة: $err', isError: true);
-      } else if (uploadResult.terminalFailures > 0) {
+      if (result.hasTransportError) {
+        _showSnack('تعذّرت المزامنة: ${result.transportError}', isError: true);
+      } else if (result.upload.terminalFailures > 0) {
         _showSnack(
-          'تمت المزامنة مع ${uploadResult.terminalFailures} عملية مرفوضة — التفاصيل تحت.',
+          'تمت المزامنة مع ${result.upload.terminalFailures} عملية مرفوضة — التفاصيل تحت.',
           isError: true,
         );
-      } else if (uploadResult.applied > 0 || downloadResult.applied > 0) {
+      } else if (result.upload.applied > 0 || result.download.applied > 0) {
         final parts = <String>[];
-        if (uploadResult.applied > 0) parts.add('رُفع ${uploadResult.applied} عملية');
-        if (downloadResult.applied > 0) parts.add('نُزّل ${downloadResult.applied} تغيير');
+        if (result.upload.applied > 0) parts.add('رُفع ${result.upload.applied} عملية');
+        if (result.download.applied > 0) parts.add('نُزّل ${result.download.applied} تغيير');
         _showSnack('تمت المزامنة — ${parts.join(' ، ')}.');
       } else {
         _showSnack('البيانات محدّثة، لا يوجد تغييرات.');
@@ -147,6 +152,16 @@ class _SettingsPageState extends State<SettingsPage> {
         });
       }
     }
+  }
+
+  // ─── Sync Dashboard (5.3) ────────────────────────────────────────────────
+
+  Future<void> _openSyncDashboard() async {
+    await Navigator.of(context).push(
+      MaterialPageRoute(builder: (_) => const SyncDashboardPage()),
+    );
+    // ممكن يكون المستخدم عمل "مزامنة الآن" جوا الشاشة — حدّث الملخّص هنا.
+    _refreshSyncStatus();
   }
 
   // ─── Backup ───────────────────────────────────────────────────────────────
@@ -365,6 +380,17 @@ class _SettingsPageState extends State<SettingsPage> {
                       trailing: _syncing ? null : const Icon(Icons.chevron_left),
                       onTap: _syncing ? null : () => _syncNow(),
                     ),
+                    const Divider(height: 1),
+                    ListTile(
+                      leading: const Icon(Icons.dashboard_customize_outlined),
+                      title: const Text('لوحة تفاصيل المزامنة'),
+                      subtitle: Text(
+                        'آخر مزامنة: ${formatSyncTime(_lastSyncAt)}'
+                        '${_conflictCount > 0 ? ' • $_conflictCount تعارض' : ''}',
+                      ),
+                      trailing: const Icon(Icons.chevron_left),
+                      onTap: _openSyncDashboard,
+                    ),
                     if (_syncFailures.isNotEmpty) ...[
                       const Divider(height: 1),
                       ListTile(
@@ -376,7 +402,9 @@ class _SettingsPageState extends State<SettingsPage> {
                           maxLines: 2,
                           overflow: TextOverflow.ellipsis,
                         ),
+                        trailing: const Icon(Icons.chevron_left),
                         isThreeLine: true,
+                        onTap: _openSyncDashboard,
                       ),
                     ],
                     const Divider(height: 1),

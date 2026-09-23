@@ -297,12 +297,14 @@ class LocalStore {
   /// Commands the Upload Queue gave up on (CONFLICT/FAILED) — surfaced in
   /// Settings so a rejected sale/expense/etc. doesn't just silently vanish
   /// from sync forever with no way for the person to notice.
-  Future<List<({String commandId, String command, String status, String? error})>> terminalFailures() async {
+  Future<List<({String commandId, String command, String status, String? error})>> terminalFailures({
+    int limit = 50,
+  }) async {
     final rows = await _db.query(
       'commands',
       where: "status IN ('CONFLICT','FAILED')",
       orderBy: 'updated_at DESC',
-      limit: 50,
+      limit: limit,
     );
     return rows
         .map((r) => (
@@ -312,6 +314,17 @@ class LocalStore {
               error: r['error'] as String?,
             ))
         .toList();
+  }
+
+  /// Count of commands the server rejected as a genuine conflict (stale
+  /// version / idempotency-key reuse with different content) — kept apart
+  /// from a plain `FAILED` count because a conflict usually means "someone
+  /// else changed this first" (something the person can investigate),
+  /// while a bare failure is more often a domain-rule rejection. Used by
+  /// the Sync Dashboard (5.3).
+  Future<int> conflictCount() async {
+    final result = await _db.rawQuery("SELECT COUNT(*) as c FROM commands WHERE status = 'CONFLICT'");
+    return Sqflite.firstIntValue(result) ?? 0;
   }
 
   /// Dumps every row of the `records` table (every entity: products, sales,
@@ -384,6 +397,30 @@ class LocalStore {
   /// يبدأ من الأول (لو كان حساب مختلف أو فرع مختلف).
   Future<void> resetSyncCursor() async {
     await _db.delete('kv', where: 'key = ?', whereArgs: ['sync_cursor']);
+  }
+
+  /// آخر وقت اتكلم فيه الجهاز مع السيرفر بنجاح (Sync Dashboard, 5.3) —
+  /// يتسجل من [SyncRunner] بعد أي دورة upload+download وصلت فعليًا
+  /// للسيرفر (حتى لو فيها CONFLICT/FAILED لبعض الأوامر)، مش بس لما فيه
+  /// تغييرات فعلية. `null` يعني لسه ما حصلتش أي مزامنة على الجهاز ده.
+  Future<DateTime?> getLastSyncAt() async {
+    final rows = await _db.query('kv', where: 'key = ?', whereArgs: ['last_sync_at']);
+    if (rows.isEmpty) return null;
+    return DateTime.tryParse(rows.first['value'] as String);
+  }
+
+  Future<void> saveLastSyncAt(DateTime time) async {
+    await _db.insert(
+      'kv',
+      {'key': 'last_sync_at', 'value': time.toIso8601String()},
+      conflictAlgorithm: ConflictAlgorithm.replace,
+    );
+  }
+
+  /// يمسح وقت آخر مزامنة — يستخدم عند تسجيل الخروج زي [resetSyncCursor]
+  /// بالظبط، عشان حساب جديد يبدأ بدون تاريخ مزامنة يخص حساب غيره.
+  Future<void> resetLastSyncAt() async {
+    await _db.delete('kv', where: 'key = ?', whereArgs: ['last_sync_at']);
   }
 
   Future<void> clearAllRecords() async {

@@ -16,8 +16,7 @@ import 'features/home/home_page.dart';
 import 'features/settings/settings_page.dart';
 import 'features/auth/auth_models.dart';
 import 'features/auth/auth_service.dart';
-import 'features/sync/upload_queue.dart';
-import 'features/sync/download_queue.dart';
+import 'features/sync/sync_runner.dart';
 
 void main() => runApp(const MobileShopApp());
 
@@ -106,15 +105,16 @@ class _AppEntryState extends State<_AppEntry> {
     final session = await AuthService.instance.loadSession();
     if (mounted) setState(() => _ready = true);
     if (session != null) {
-      // 5.1: catch up the offline outbox on every app start where we're
-      // already logged in — not just right after a fresh login (see
-      // settings_page.dart's _openLogin). Deliberately not awaited: a slow
-      // or failed drain must never hold up showing the dashboard, and
-      // UploadQueue.drain() already swallows its own transport errors.
+      // 5.1/5.2: catch up the offline outbox and pull server changes on
+      // every app start where we're already logged in — not just right
+      // after a fresh login (see settings_page.dart's _openLogin).
+      // Deliberately not awaited: a slow or failed sync must never hold up
+      // showing the dashboard. [SyncRunner] runs upload then download in
+      // one sequential call and records "آخر مزامنة" for the Sync
+      // Dashboard (5.3) — both queues already swallow their own transport
+      // errors into their result objects instead of throwing.
       final store = await LocalStore.open();
-      unawaited(UploadQueue(store).drain());
-      // 5.2 — بعد الـ upload، نجيب التغييرات الجديدة من السيرفر.
-      unawaited(DownloadQueue(store).drain());
+      unawaited(SyncRunner(store).run());
     }
   }
 

@@ -87,6 +87,27 @@ def dispatch(engine, command_name, command, **payload):
             name=data['name'], wallet_type=data['wallet_type'], active=bool(data.get('active', True)),
         )
         payload = {'wallet': wallet}
+    elif name == 'adjustStock':
+        # Both clients (apps/admin_mobile and apps/desktop) send the field as
+        # 'delta' — engine.adjust_stock(command, product_id, quantity, cost=0,
+        # reason='') takes 'quantity'. With no special case here this fell
+        # through to the generic `getattr(engine, fn)(command, **payload)`
+        # call below and raised a bare TypeError (unexpected keyword argument
+        # 'delta', missing required 'quantity') for every adjustStock command
+        # — not a DomainError, so command_endpoint's `except DomainError`
+        # doesn't catch it either; it surfaces as a raw 500. This is why
+        # opening-quantity/stock-adjustment commands were never actually
+        # applied server-side even after a successful-looking sync.
+        # 'delta' is what both real clients send; a couple of existing tests
+        # call dispatch() directly with 'quantity' (the engine's own param
+        # name) instead, bypassing the client wire format — accept either.
+        qty = payload['delta'] if 'delta' in payload else payload['quantity']
+        payload = {
+            'product_id': payload['product_id'],
+            'quantity': qty,
+            'cost': payload.get('cost', 0),
+            'reason': payload.get('reason', ''),
+        }
     elif name == 'updateProduct':
         # update_product(self, command, product_id, **changes) uses
         # dataclasses.replace(), so `changes` values must already be the

@@ -27,7 +27,7 @@ class LocalStore {
       final dbPath = p.join(await getDatabasesPath(), 'mobile_shop_erp.db');
       _cached = await openDatabase(
         dbPath,
-        version: 1,
+        version: 2,
         onConfigure: (db) async {
           await db.execute('PRAGMA foreign_keys = ON');
         },
@@ -67,6 +67,22 @@ class LocalStore {
           ''');
           await db.execute('CREATE INDEX idx_records_tenant_branch ON records(tenant_id, branch_id, entity)');
           await db.execute('CREATE INDEX idx_commands_tenant_status ON commands(tenant_id, status, created_at)');
+          await db.execute('''
+            CREATE TABLE kv (
+              key TEXT PRIMARY KEY,
+              value TEXT NOT NULL
+            );
+          ''');
+        },
+        onUpgrade: (db, oldVersion, newVersion) async {
+          if (oldVersion < 2) {
+            await db.execute('''
+              CREATE TABLE IF NOT EXISTS kv (
+                key TEXT PRIMARY KEY,
+                value TEXT NOT NULL
+              );
+            ''');
+          }
         },
       );
     }
@@ -345,6 +361,31 @@ class LocalStore {
   /// Deletes every row in `records`. Used right before a full backup
   /// restore so the device ends up with exactly what's in the backup file,
   /// not a mix of old and restored data.
+  // ─── Sync Cursor (5.2) ───────────────────────────────────────────────────
+
+  /// آخر cursor تم تنزيل changes حتى هذا الرقم من السيرفر.
+  /// `0` يعني لم يتم تنزيل أي شيء بعد (أول مرة).
+  Future<int> getSyncCursor() async {
+    final rows = await _db.query('kv', where: 'key = ?', whereArgs: ['sync_cursor']);
+    if (rows.isEmpty) return 0;
+    return int.tryParse(rows.first['value'] as String) ?? 0;
+  }
+
+  /// يحفظ الـ cursor بعد كل صفحة ناجحة من `/sync/changes`.
+  Future<void> saveSyncCursor(int cursor) async {
+    await _db.insert(
+      'kv',
+      {'key': 'sync_cursor', 'value': '$cursor'},
+      conflictAlgorithm: ConflictAlgorithm.replace,
+    );
+  }
+
+  /// يمسح الـ cursor — يستخدم عند تسجيل الخروج عشان الدخول الجديد
+  /// يبدأ من الأول (لو كان حساب مختلف أو فرع مختلف).
+  Future<void> resetSyncCursor() async {
+    await _db.delete('kv', where: 'key = ?', whereArgs: ['sync_cursor']);
+  }
+
   Future<void> clearAllRecords() async {
     await _db.delete('records');
   }

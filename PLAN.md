@@ -194,15 +194,73 @@ flutter run
 
 ---
 
-- [ ] 4.3 رفع البيانات (Sales / Expenses / Maintenance / Installments) للسيرفر.
+### 4.3 رفع البيانات (Sales / Expenses / Maintenance / Installments) للسيرفر ✅
+
+**الفكرة:** لحد 4.2، كل كتابة في المبيعات/المصروفات/الصيانة/الأقساط كانت بتتسجل محليًا وبس (مع تسجيلها في outbox جاهزة لـ 5.1). دلوقتي، بعد كل كتابة من دول، لو فيه Session نشطة، بيتعمل نداء إضافي فوري ومباشر لـ `/command` على السيرفر — بنفس الـ id اللي اتسجل بيه الـ record/outbox محليًا (مش id عشوائي منفصل)، عشان:
+1. لو السيرفر فيه بالفعل نفس الـ command_id (نداء اتكرر)، هو idempotent وبيرجّع نفس النتيجة القديمة بدل ما يكرر العملية.
+2. الـ id بتاع الـ Sale/Ticket/Plan محليًا يبقى **هو نفسه** الـ id اللي السيرفر هيخزّنه بيه (لأن `create_sale`/`create_maintenance_ticket`/`create_installment_plan` كلهم بيحطوا `id = command.command_id`) — عشان أي عملية تالية بترجع لنفس الـ id (زي `voidSale` أو `usePart`) تلاقيه موجود على السيرفر.
+
+لو النداء الفوري نجح، بيتشال الصف من جدول `outbox` (عبر `LocalStore.markCommandSynced` الجديدة) عشان 5.1 (لما تتبني) متعيدش الإرسال. لو فشل (offline، فشل تحقق، اختلاف الموديل المحلي عن السيرفر) بيتم تجاهل الخطأ بصمت والعملية تفضل PENDING في الـ outbox زي ما كانت بالظبط قبل 4.3 — يعني فشل النداء الفوري **مايكسرش ولا يرجّع** أي حاجة اتسجلت محليًا (offline-first).
+
+**باگ حقيقي في الباك إند اتكشف واتصلح أثناء التنفيذ:** `collectInstallment` كان معطوب في `backend/functions/api/dispatch.py` — كان بيبني `CollectInstallmentCommand` وبعدين يمسح الـ payload، فـ `ERPCommandEngine.collect_installment(command, plan_id, amount, wallet_id)` كان بياخد بس الـ command وبيرمي `TypeError` (اتأكد بالتشغيل الفعلي بـ Python — البيئة فيها Python شغال فعليًا على عكس Flutter). الإصلاح: تمرير `plan_id`/`amount`/`wallet_id` كـ payload عادي بدل التغليف في Contract. اتعمل اختبار فعلي (مش مراجعة يدوية) لكل الأوامر السبعة المستخدمة هنا (`createSale`, `voidSale`, `createExpense`, `createMaintenanceTicket`, `useMaintenancePart`, `deliverMaintenanceTicket`, `createInstallmentPlan`, `collectInstallment` بعد التصحيح) عن طريق استدعاء `dispatch()` فعليًا على `ERPCommandEngine` حقيقي، شامل اختبار الـ idempotency (نفس الـ command_id مرتين بيرجّع نفس النتيجة).
+
+**نطاق مقصود ومحدود (مش كل عملية كتابة):**
+- **Sales:** `createSale` و`voidSale` بس — فيهم command مطابق في `dispatch.py`.
+- **Expenses:** `createExpense` بس (العملية الوحيدة الموجودة أصلًا).
+- **Maintenance:** `createTicket`/`usePart`/`deliverTicket` بس. أما `advanceStatus` و`cancelTicket` **فضلوا محليين فقط** — مفيش `transitionMaintenance` ولا `cancelMaintenance` في خريطة `dispatch.py` أصلًا (باگ/نقص في الباك إند مختلف عن اللي اتصلح فوق، وده برّه نطاق 4.3 — مش نداء بيتحدد شكله غلط، ده command مش موجود خالص على السيرفر).
+- **Installments:** `createPlan` بيتبعت بس لو `saleId != null` **و** `downPayment == 0` — لأن `create_installment_plan` على السيرفر لازم `sale_id` (موديل الموبايل بيسمح بخطة من غير بيع مرتبط، وده اختلاف متعمد موجود في تعليق `InstallmentPlan` نفسه)، وبيطلب `down_payment_wallet_id` لو فيه دفعة مقدّمة، وموديل الموبايل مالوش أي حقل محفظة للدفعة المقدمة أصلًا. `collectPayment` بيتبعت عادي.
+- مدفوعات CARD/CREDIT (في المبيعات/المصروفات/الصيانة/الأقساط) بتتفلتر برّه أي نداء للسيرفر لأنه مفيش محفظة built-in ليهم أصلًا — بيتسجلوا محليًا زي ما هما وبس (نفس الفلترة اللي `_postWalletEntries` بيعملها محليًا).
+
+**ملفات جديدة:**
+- `apps/admin_mobile/lib/features/sync/online_push.dart` — الدالة المشتركة `pushCommandOnline()`.
+
+**ملفات معدّلة:**
+- `apps/admin_mobile/lib/features/inventory/local_store.dart` — إضافة `markCommandSynced()`.
+- `apps/admin_mobile/lib/features/sales/sqlite_sale_repository.dart` — `createSale`/`voidSale`.
+- `apps/admin_mobile/lib/features/expenses/sqlite_expense_repository.dart` — `addExpense`.
+- `apps/admin_mobile/lib/features/maintenance/sqlite_maintenance_repository.dart` — `createTicket`/`usePart`/`deliverTicket`.
+- `apps/admin_mobile/lib/features/installments/sqlite_installment_repository.dart` — `createPlan`/`collectPayment`.
+- `backend/functions/api/dispatch.py` — إصلاح باگ `collectInstallment` (تفصيل فوق).
+
+> ⚠️ نفس التنويه المتكرر: مفيش Flutter SDK في البيئة، فمقدرتش أشغّل `flutter analyze` أو `flutter run` فعليًا على ملفات الموبايل. اللي اختلف هنا عن 4.1/4.2: الجزء البايثون (الباك إند) **اتشغّل واتاختبر فعليًا** (مش مراجعة يدوية) لأن Python متاح في البيئة، فالتأكد من شكل كل command وباراميتراته مبني على تنفيذ حقيقي مش قراءة كود بس. لازم لسه: `flutter pub get && flutter analyze && flutter run` + اختبار يدوي حقيقي (تسجيل بيع/مصروف/تذكرة صيانة/قسط وأنت مسجّل دخول، والتأكد من ضهوره في قاعدة بيانات السيرفر) قبل الاعتماد عليه في بيئة حقيقية.
+
+**النتيجة:** ✔ عمليات الإنشاء الأساسية في المبيعات/المصروفات/الصيانة/الأقساط بتتبعت للسيرفر فورًا لما يكون فيه مستخدم مسجّل دخول، من غير ما تأثر على السلوك المحلي/الأوفلاين الحالي بأي شكل — أي فشل في النداء البعيد بيتم تجاهله بصمت والعملية تفضل شغالة محليًا زي زمان.
 
 ---
 
 ## المرحلة 5 — Sync Engine
 
-- [ ] 5.1 Upload Queue (Outbox + Retry + Failure Handling).
-- [ ] 5.2 Download Queue (Cursor Tracking + Changes Fetching).
-- [ ] 5.3 Sync Dashboard (Pending Commands / Last Sync / Sync Errors / Conflict Count).
+### 5.1 Upload Queue (Outbox + Retry + Failure Handling) ✅
+
+**الفكرة:** كل كتابة محلية كانت بتتسجل في outbox من زمان (حتى قبل 4.3)، لكن مفيش حد كان بياخد الأوامر دي ويحاول يرفعها تاني لو فشلت أو لو كانت اتسجلت وانت أوفلاين. 5.1 هي الآلية اللي بتعمل كده فعليًا، باستخدام `POST /sync/upload` (موجود بالفعل من 4.1 في `ApiClient.syncUpload`) اللي بيتكلم مع `SyncProtocol.upload` في الباك إند — البروتوكول ده أصلًا بيرجّع لكل أمر حالة واحدة من أربعة: `APPLIED` (نجح)، `CONFLICT`/`FAILED` (رفض نهائي، مفيش فايدة من إعادة المحاولة)، `RETRYABLE` (خطأ مؤقت، يستاهل إعادة محاولة).
+
+**آلية الـ Retry:** كل أمر RETRYABLE بياخد exponential backoff (10 ثانية → 20 → 40 → ... لحد سقف ساعة) مخزّن في `outbox.next_attempt_at` — عمود كان موجود في الـ schema من زمان بس مش مستخدم. `listDueOutboxCommands()` بترجع بس الأوامر اللي وقتها جه (أو لسه محاولتش خالص).
+
+**قرار معماري مهم:** بدل ما نصلّح كل مكان بيستخدم `queueCommand()` (4 ملفات Repository) عشان يبعت الـ tenant_id/branch_id الحقيقي من الجلسة بدل الـ placeholders (`LOCAL_TENANT`/`LOCAL_BRANCH`) المخزنة من زمان، الـ `UploadQueue` بتبني كل envelope وقت الرفع بـ tenant_id/branch_id **الجلسة الحالية النشطة**، مش اللي متسجل في الصف نفسه — لأن السيرفر أصلًا بيتحقق إن الـ envelope يطابق claims بتاعت المستخدم اللي عامل الطلب، مش اللي كان مسجّل وقت الحفظ. الجهاز مالوش أكتر من tenant/branch نشط فعليًا في نفس الوقت لغاية دلوقتي، فده مأمون ومتوافق مع نفس الافتراض المكتوب أصلًا في تعليق `LocalStore.defaultTenantId`.
+
+**التريجر:** 
+1. عند فتح التطبيق ولو فيه جلسة محفوظة (`main.dart`) — مرة واحدة تلقائيًا كل ما تفتح التطبيق.
+2. عند تسجيل الدخول الناجح (`settings_page.dart`).
+3. زرار يدوي "مزامنة الآن" في قسم "الحساب السحابي" بصفحة الإعدادات — بيعرض عدد العمليات المعلّقة، وبيسرد أي عمليات اترفضت نهائيًا من السيرفر (CONFLICT/FAILED) عشان متختفيش من غير ما حد يلاحظ.
+
+**ملفات جديدة:**
+- `apps/admin_mobile/lib/features/sync/upload_queue.dart` — الـ `UploadQueue` class.
+
+**ملفات معدّلة:**
+- `apps/admin_mobile/lib/features/inventory/local_store.dart` — `listDueOutboxCommands()`, `scheduleRetry()`, `markCommandTerminalFailure()`, `terminalFailures()`، وتبسيط `pendingCommandCount()`.
+- `apps/admin_mobile/lib/main.dart` — تشغيل الـ drain عند بدء التطبيق لو فيه جلسة.
+- `apps/admin_mobile/lib/features/settings/settings_page.dart` — زرار "مزامنة الآن" + عرض العمليات المعلّقة/المرفوضة.
+
+> ⚠️ نفس التنويه: مفيش Flutter SDK، فمقدرتش أشغّل `flutter analyze`/`flutter run`. عملت فحص توازن أقواس على كل ملف معدّل، وتتبعت شكل الـ JSON اللي `/sync/upload` بيرجّعه من كود `SyncProtocol.upload` نفسه في الباك إند (نفس الملف اللي اتفحص Python فيه فعليًا في 4.3) عشان أتأكد إن الـ status/error_code اللي الكود بيقرأها مطابقة لما السيرفر فعلاً بيرجّعه. **لسه محتاج اختبار حقيقي:** تسجيل عمليات وانت أوفلاين، بعدين تسجيل دخول وتتأكد إنها بترفع فعليًا وتتشال من outbox، وتجربة سيناريو رفض حقيقي (مثلاً بيع بمنتج تم حذفه) عشان تتأكد إن قائمة "العمليات المرفوضة" بتظهر صح.
+
+**ملاحظة عن 5.3:** الزرار والعرض اللي اتضافوا في صفحة الإعدادات هنا هما نسخة مبسّطة من "Sync Dashboard" (5.3) — مش بديل كامل ليها (مفيش فيها مثلاً "آخر وقت مزامنة" منفصل أو عدّاد Conflict لوحده عن FAILED)، لكنها كافية كبداية. 5.3 لسه ممكن تتبنى كصفحة/شاشة مخصصة أوسع لو احتجنا تفاصيل أكتر.
+
+**النتيجة:** ✔ أي عملية اتسجلت محليًا وفشلت أو اتسجلت أوفلاين، دلوقتي بتتحاول تاني تلقائيًا (بفتح التطبيق أو تسجيل الدخول) أو يدويًا، مع تمييز واضح بين "لسه بيحاول" و"اترفض نهائيًا ومحتاج مراجعة".
+
+---
+
+- [x] 5.2 Download Queue (Cursor Tracking + Changes Fetching). ✅
+- [ ] 5.3 Sync Dashboard (Pending Commands / Last Sync / Sync Errors / Conflict Count) — نسخة مبسّطة موجودة بالفعل من 5.1 (فوق)، ده لو احتجنا شاشة مخصصة أوسع.
 
 ---
 

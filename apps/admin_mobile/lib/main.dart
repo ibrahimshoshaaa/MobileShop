@@ -17,6 +17,7 @@ import 'features/settings/settings_page.dart';
 import 'features/auth/auth_models.dart';
 import 'features/auth/auth_service.dart';
 import 'features/sync/upload_queue.dart';
+import 'features/sync/download_queue.dart';
 
 void main() => runApp(const MobileShopApp());
 
@@ -110,7 +111,10 @@ class _AppEntryState extends State<_AppEntry> {
       // settings_page.dart's _openLogin). Deliberately not awaited: a slow
       // or failed drain must never hold up showing the dashboard, and
       // UploadQueue.drain() already swallows its own transport errors.
-      unawaited(UploadQueue(await LocalStore.open()).drain());
+      final store = await LocalStore.open();
+      unawaited(UploadQueue(store).drain());
+      // 5.2 — بعد الـ upload، نجيب التغييرات الجديدة من السيرفر.
+      unawaited(DownloadQueue(store).drain());
     }
   }
 

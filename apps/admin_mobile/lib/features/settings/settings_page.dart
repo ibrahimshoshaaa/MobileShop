@@ -11,6 +11,7 @@ import '../auth/auth_service.dart';
 import '../auth/login_page.dart';
 import '../inventory/local_store.dart';
 import '../sync/upload_queue.dart';
+import '../sync/download_queue.dart';
 
 class SettingsPage extends StatefulWidget {
   const SettingsPage({super.key, this.onSessionChanged});
@@ -92,11 +93,14 @@ class _SettingsPageState extends State<SettingsPage> {
     );
     if (confirmed != true || !mounted) return;
     await AuthService.instance.logout();
+    // مسح الـ cursor عشان لو دخل حساب تاني يبدأ من الأول
+    final store = await LocalStore.open();
+    await store.resetSyncCursor();
     setState(() => _session = null);
     widget.onSessionChanged?.call();
   }
 
-  // ─── Sync (5.1) ───────────────────────────────────────────────────────────
+  // ─── Sync (5.1 + 5.2) ────────────────────────────────────────────────────
 
   Future<void> _syncNow({bool showBusyIndicator = true}) async {
     if (_syncing) return;
@@ -106,18 +110,34 @@ class _SettingsPageState extends State<SettingsPage> {
     });
     try {
       final store = await LocalStore.open();
-      final result = await UploadQueue(store).drain();
+
+      // 5.1 — Upload: ارفع الأوامر المحلية للسيرفر أولاً
+      final uploadResult = await UploadQueue(store).drain();
       if (!mounted) return;
+
+      // 5.2 — Download: جيب التغييرات الجديدة من السيرفر
+      final downloadResult = await DownloadQueue(store).drain();
+      if (!mounted) return;
+
       await _refreshSyncStatus();
       if (!mounted) return;
-      if (result.transportError != null) {
-        _showSnack('تعذّرت المزامنة: ${result.transportError}', isError: true);
-      } else if (result.terminalFailures > 0) {
-        _showSnack('تمت المزامنة مع ${result.terminalFailures} عملية مرفوضة من السيرفر — التفاصيل تحت.', isError: true);
-      } else if (result.applied > 0) {
-        _showSnack('تمت مزامنة ${result.applied} عملية بنجاح.');
+
+      // بناء رسالة الحالة
+      if (uploadResult.transportError != null || downloadResult.hasError) {
+        final err = uploadResult.transportError ?? downloadResult.transportError;
+        _showSnack('تعذّرت المزامنة: $err', isError: true);
+      } else if (uploadResult.terminalFailures > 0) {
+        _showSnack(
+          'تمت المزامنة مع ${uploadResult.terminalFailures} عملية مرفوضة — التفاصيل تحت.',
+          isError: true,
+        );
+      } else if (uploadResult.applied > 0 || downloadResult.applied > 0) {
+        final parts = <String>[];
+        if (uploadResult.applied > 0) parts.add('رُفع ${uploadResult.applied} عملية');
+        if (downloadResult.applied > 0) parts.add('نُزّل ${downloadResult.applied} تغيير');
+        _showSnack('تمت المزامنة — ${parts.join(' ، ')}.');
       } else {
-        _showSnack('لا يوجد شيء يحتاج مزامنة.');
+        _showSnack('البيانات محدّثة، لا يوجد تغييرات.');
       }
     } finally {
       if (mounted) setState(() {

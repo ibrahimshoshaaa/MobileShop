@@ -50,8 +50,10 @@ if str(_REPO_ROOT) not in sys.path:
 
 from dataclasses import asdict, is_dataclass
 from decimal import Decimal
+import hmac
 
 from fastapi import FastAPI, Request
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from backend.api_server.dev_auth import verify_dev_token
@@ -71,6 +73,22 @@ app = FastAPI(
     title="Mobile Shop ERP API (dev)",
     version="0.2.0-dev",
     description="Local/dev entrypoint only — see module docstring in main.py.",
+)
+
+# Every endpoint below other than the static "/" and "/health" already
+# requires a valid Bearer token (dev_auth/turso_auth) or the admin secret
+# (see /admin/users), so a browser origin being able to *attempt* a request
+# doesn't grant it anything — CORS here only controls who can attempt.
+# Needed both for the Flutter web build (per the project's own multi-platform
+# target) and for browser-based admin tooling like admin/users.html.
+# Set ALLOWED_ORIGINS (comma-separated) to lock this down to specific
+# origins in production; unset/"*" allows any origin.
+_allowed_origins = os.getenv("ALLOWED_ORIGINS", "*")
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"] if _allowed_origins.strip() == "*" else [o.strip() for o in _allowed_origins.split(",") if o.strip()],
+    allow_methods=["GET", "POST"],
+    allow_headers=["*"],
 )
 
 if os.getenv("TURSO_DATABASE_URL") and os.getenv("TURSO_AUTH_TOKEN"):
@@ -194,7 +212,94 @@ class _RequestAdapter:
         return self._body
 
 
-@app.get("/")
+@app.post("/admin/users")
+async def admin_create_user(request: Request):
+    """Creates (or updates, same email = overwrite) a turso_auth login user,
+    and the branch it's linked to if that branch doesn't exist yet.
+
+    Guarded by a shared secret (ADMIN_BOOTSTRAP_SECRET), not a normal user
+    token — this bypasses the permission system entirely (it's how the
+    *first* owner account gets created, before any token with users.manage
+    exists), so treat that secret like a root password. Not documented in
+    the '/' route list on purpose; only reachable if you already know it's
+    there. This is what apps/admin_mobile users.html on your own machine
+    calls — never expose that page publicly with the secret filled in.
+    """
+    configured_secret = os.getenv("ADMIN_BOOTSTRAP_SECRET")
+    if not configured_secret:
+        return JSONResponse(
+            {"ok": False, "error": {"code": "NOT_CONFIGURED", "message": "ADMIN_BOOTSTRAP_SECRET غير مضبوط على السيرفر.", "details": {}}},
+            status_code=501,
+        )
+    provided_secret = request.headers.get("x-admin-secret") or ""
+    if not hmac.compare_digest(provided_secret, configured_secret):
+        return JSONResponse({"ok": False, "error": {"code": "UNAUTHORIZED", "message": "مفتاح الإدارة غير صحيح.", "details": {}}}, status_code=401)
+
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    body = body or {}
+    email = str(body.get("email") or "").strip()
+    password = str(body.get("password") or "")
+    tenant_id = str(body.get("tenant_id") or "").strip()
+    branch_id = str(body.get("branch_id") or "").strip()
+    branch_name = str(body.get("branch_name") or "").strip()
+    branch_code = str(body.get("branch_code") or "").strip()
+    permissions = body.get("permissions")
+    display_name = body.get("display_name")
+
+    missing = [
+        field for field, value in
+        [("email", email), ("password", password), ("tenant_id", tenant_id), ("branch_id", branch_id), ("branch_name", branch_name), ("branch_code", branch_code)]
+        if not value
+    ]
+    if missing:
+        return JSONResponse(
+            {"ok": False, "error": {"code": "INVALID_INPUT", "message": "حقول ناقصة: " + ", ".join(missing), "details": {}}},
+            status_code=400,
+        )
+    if len(password) < 8:
+        return JSONResponse({"ok": False, "error": {"code": "INVALID_INPUT", "message": "كلمة المرور 8 أحرف على الأقل.", "details": {}}}, status_code=400)
+
+    if permissions is None or (isinstance(permissions, str) and permissions.strip().lower() == "all"):
+        permission_list = list(turso_auth.ALL_PERMISSIONS)
+    elif isinstance(permissions, list):
+        permission_list = [str(p).strip() for p in permissions if str(p).strip()]
+    else:
+        return JSONResponse({"ok": False, "error": {"code": "INVALID_INPUT", "message": "permissions لازم تكون قايمة أو 'all'.", "details": {}}}, status_code=400)
+
+    from shared.models.erp import Branch
+
+    token = set_tenant_scope(tenant_id)
+    try:
+        existing = engine.branches.get(branch_id)
+        branch = Branch(id=branch_id, name=branch_name, code=branch_code, active=True, tenant_id=tenant_id)
+        if existing is None:
+            engine.branches.create(branch_id, branch, tenant_id=tenant_id)
+        else:
+            engine.branches.update(branch_id, branch)
+    except PermissionError:
+        return JSONResponse({"ok": False, "error": {"code": "CROSS_TENANT", "message": "كود الفرع مستخدم من مستأجر تاني.", "details": {}}}, status_code=409)
+    finally:
+        reset_tenant_scope(token)
+
+    try:
+        result = turso_auth.create_user(
+            email=email,
+            password=password,
+            tenant_id=tenant_id,
+            branch_ids=[branch_id],
+            permissions=permission_list,
+            display_name=display_name or None,
+        )
+    except ValueError as exc:
+        return JSONResponse({"ok": False, "error": {"code": "INVALID_INPUT", "message": str(exc), "details": {}}}, status_code=400)
+
+    return JSONResponse({"ok": True, "data": {**result, "branch_id": branch_id, "permissions_count": len(permission_list)}})
+
+
+
 def root():
     """Deployment landing endpoint; the Vercel project hosts the API, not a browser UI."""
     return {

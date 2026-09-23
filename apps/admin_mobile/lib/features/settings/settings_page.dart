@@ -12,7 +12,7 @@ import '../auth/login_page.dart';
 import '../inventory/local_store.dart';
 import '../sync/sync_runner.dart';
 import '../sync/sync_time_format.dart';
-import 'sync_dashboard_page.dart';
+import '../sync/sync_dashboard_page.dart';
 
 class SettingsPage extends StatefulWidget {
   const SettingsPage({super.key, this.onSessionChanged});

@@ -9,6 +9,9 @@ String formatSyncTime(DateTime? time) {
   if (diff.inHours < 1) return 'منذ ${diff.inMinutes} دقيقة';
   if (diff.inDays < 1) return 'منذ ${diff.inHours} ساعة';
   if (diff.inDays < 30) return 'منذ ${diff.inDays} يوم';
-  final two = (int n) => n.toString().padLeft(2, '0');
-  return 'في ${two(time.day)}/${two(time.month)}/${time.year}';
+  return 'في ${_two(time.day)}/${_two(time.month)}/${time.year}';
+}
+
+String _two(int n) {
+  return n.toString().padLeft(2, '0');
 }

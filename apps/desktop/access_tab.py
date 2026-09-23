@@ -53,5 +53,5 @@ class AccessTab(ttk.Frame):
         self._simple_dialog("إضافة دور",[("name","اسم الدور"),("permissions","الصلاحيات (مفصولة بفواصل)")],lambda v:self.repo.add_role(name=v["name"].get(),permissions=[x.strip() for x in v["permissions"].get().split(",") if x.strip()]))
 
     def _add_user(self):
-        self._simple_dialog("إضافة مستخدم",[("id","Firebase UID / User ID"),("name","اسم المستخدم"),("branches","أكواد/IDs الفروع مفصولة بفواصل"),("role","Role ID (اختياري)")],
+        self._simple_dialog("إضافة مستخدم",[("id","معرّف المستخدم (User ID)"),("name","اسم المستخدم"),("branches","أكواد/IDs الفروع مفصولة بفواصل"),("role","Role ID (اختياري)")],
             lambda v:self.repo.add_user(user_id=v["id"].get(),name=v["name"].get(),branch_ids=[x.strip() for x in v["branches"].get().split(",") if x.strip()],role_id=v["role"].get().strip() or None))

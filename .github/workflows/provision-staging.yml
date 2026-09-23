@@ -16,11 +16,11 @@ jobs:
         with:
           python-version: "3.12"
       - name: Install provisioning dependencies
-        run: python -m pip install --upgrade pip && python -m pip install firebase-admin libsql-client
+        run: python -m pip install --upgrade pip && python -m pip install libsql-client
       - name: Provision isolated staging principal
         env:
-          FIREBASE_SERVICE_ACCOUNT_JSON: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_JSON }}
-          FIREBASE_STAGING_UID: ${{ secrets.FIREBASE_STAGING_UID }}
+          STAGING_EMAIL: ${{ secrets.STAGING_EMAIL }}
+          STAGING_PASSWORD: ${{ secrets.STAGING_PASSWORD }}
           TURSO_DATABASE_URL: ${{ secrets.TURSO_DATABASE_URL }}
           TURSO_AUTH_TOKEN: ${{ secrets.TURSO_AUTH_TOKEN }}
           STAGING_TENANT_ID: staging-tenant

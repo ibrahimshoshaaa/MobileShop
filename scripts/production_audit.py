@@ -25,11 +25,11 @@ workflow = read(".github/workflows/ci.yml")
 
 checks = {
     "production_refuses_dev_auth": 'Refusing to start production with development-token authentication' in main,
-    "production_requires_firebase": 'Production requires AUTH_PROVIDER=firebase' in main,
+    "production_requires_turso_auth": 'Production requires AUTH_PROVIDER=turso' in main,
+    "production_requires_jwt_secret": 'Production requires AUTH_JWT_SECRET' in main,
     "production_requires_turso_url": 'Production requires TURSO_DATABASE_URL and TURSO_AUTH_TOKEN' in main,
     "vercel_python_entrypoint": '"src": "api/index.py"' in vercel and '"use": "@vercel/python"' in vercel,
     "fastapi_declared": '"fastapi>=' in requirements,
-    "firebase_declared": '"firebase-admin>=' in requirements,
     "libsql_declared": '"libsql==' in requirements,
     "security_ci_present": "bandit" in workflow and "pip-audit" in workflow,
 }

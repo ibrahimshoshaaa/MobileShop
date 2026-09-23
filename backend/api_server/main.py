@@ -10,8 +10,9 @@ missing before this is a real deployed API:
 1. Not Turso/libSQL — this is one process's local SQLite file
    (backend/api_server/data/dev_erp.db, git-ignored), not a managed remote
    database, and there's no multi-server coordination.
-2. Auth: dev_auth.py is a static token table, not real Firebase ID-token
-   verification. It exists only so this server can be exercised locally.
+2. Auth: dev_auth.py is a static token table, not real turso_auth.py
+   password verification. It exists only so this server can be exercised
+   locally.
 
 What IS real: the command dispatch, validation, permission checks,
 idempotency (same commandId replayed returns the original result instead of
@@ -49,15 +50,13 @@ if str(_REPO_ROOT) not in sys.path:
 
 from dataclasses import asdict, is_dataclass
 from decimal import Decimal
-import json as _json
-import urllib.error
-import urllib.request
 
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 
 from backend.api_server.dev_auth import verify_dev_token
-from backend.api_server.production_auth import verify_request as verify_production_token
+from backend.api_server import turso_auth
+from backend.api_server.turso_auth import verify_request as verify_production_token
 from backend.api_server.dev_seed import seed_dev_data
 from backend.functions.api.http import handle
 from backend.functions.services.durable_engine import DurableERPCommandEngine
@@ -83,10 +82,12 @@ else:
 _DB_PATH.parent.mkdir(parents=True, exist_ok=True)
 
 if os.getenv("APP_ENV", "development").lower() == "production":
-    if os.getenv("AUTH_PROVIDER", "dev").lower() != "firebase":
-        raise RuntimeError("Production requires AUTH_PROVIDER=firebase")
+    if os.getenv("AUTH_PROVIDER", "dev").lower() != "turso":
+        raise RuntimeError("Production requires AUTH_PROVIDER=turso")
     if not os.getenv("TURSO_DATABASE_URL") or not os.getenv("TURSO_AUTH_TOKEN"):
         raise RuntimeError("Production requires TURSO_DATABASE_URL and TURSO_AUTH_TOKEN")
+    if not os.getenv("AUTH_JWT_SECRET"):
+        raise RuntimeError("Production requires AUTH_JWT_SECRET")
 
 # A single in-process engine instance shared by every request. Persists to
 # _DB_PATH (see durable_engine.py) — survives restarts of this process, but
@@ -96,20 +97,16 @@ if os.getenv("APP_ENV", "development").lower() != "production":
     seed_dev_data(engine)
 sync_protocol = SyncProtocol(connection=engine._conn)
 
-verify_token = verify_production_token if os.getenv("AUTH_PROVIDER", "dev").lower() == "firebase" else verify_dev_token
+verify_token = verify_production_token if os.getenv("AUTH_PROVIDER", "dev").lower() == "turso" else verify_dev_token
 
 # ─── Email/password login (backs POST /auth/login below) ───────────────────
 #
-# Neither dev_auth.py nor production_auth.py handle a login *exchange* — they
-# only verify a bearer token that some other process already issued. This
-# fills that gap for both modes:
+# Neither dev_auth.py nor turso_auth.py handle a login *exchange* on their
+# own beyond turso_auth.sign_in() — this wires that into the two modes:
 #
-# - firebase mode: calls the Firebase Identity Toolkit REST API (the same
-#   HTTP endpoint the Firebase client SDKs call under the hood) to verify
-#   email/password and mint a real Firebase ID token, then runs that token
-#   straight through verify_production_token — no separate trust path.
-#   Requires FIREBASE_WEB_API_KEY (the public *Web API key* from the
-#   Firebase project settings — not a service-account secret).
+# - turso mode: turso_auth.sign_in() checks the password against the
+#   PBKDF2 hash stored in the auth_users table and mints a signed token
+#   directly — no third-party identity provider involved.
 # - dev mode: a static email/password table mirroring dev_auth.py's static
 #   token table. Local/dev sandbox only, never used in production (guarded
 #   the same way dev_auth.py's tokens already are).
@@ -128,54 +125,21 @@ _DEV_LOGIN_USERS = {
 
 
 class _BearerOnlyRequest:
-    """Minimal stand-in so verify_production_token(request) can read a
-    freshly-minted ID token the same way it reads any other request."""
+    """Minimal stand-in so verify_dev_token(request) can read a token the
+    same way it reads any other request."""
 
     def __init__(self, id_token: str):
         self.headers = {"authorization": f"Bearer {id_token}"}
 
 
-def _firebase_sign_in(email: str, password: str) -> str:
-    api_key = os.getenv("FIREBASE_WEB_API_KEY")
-    if not api_key:
-        raise _LoginError("إعداد الخادم غير مكتمل (FIREBASE_WEB_API_KEY).")
-    url = f"https://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword?key={api_key}"
-    payload = _json.dumps({"email": email, "password": password, "returnSecureToken": True}).encode()
-    req = urllib.request.Request(url, data=payload, headers={"Content-Type": "application/json"}, method="POST")
-    try:
-        with urllib.request.urlopen(req, timeout=10) as res:
-            data = _json.loads(res.read().decode())
-    except urllib.error.HTTPError as exc:
-        try:
-            body = _json.loads(exc.read().decode())
-            reason = (body.get("error") or {}).get("message", "")
-        except Exception:
-            reason = ""
-        if reason in {"EMAIL_NOT_FOUND", "INVALID_PASSWORD", "INVALID_LOGIN_CREDENTIALS"}:
-            raise _LoginError("بيانات الدخول غير صحيحة.") from exc
-        raise _LoginError("تعذّر الاتصال بخدمة تسجيل الدخول.") from exc
-    except urllib.error.URLError as exc:
-        raise _LoginError("تعذّر الاتصال بخدمة تسجيل الدخول.") from exc
-    return data["idToken"]
-
-
 def _login(email: str, password: str) -> dict:
     """Returns the {token, tenant_id, account_id, display_name} payload the
     Flutter client's AuthService.login expects, or raises _LoginError."""
-    if os.getenv("AUTH_PROVIDER", "dev").lower() == "firebase":
-        id_token = _firebase_sign_in(email, password)
-        claims = verify_production_token(_BearerOnlyRequest(id_token))
-        if not claims:
-            # Signed in with Firebase but the ID token carries no usable
-            # tenant_id/branch_ids/permissions custom claims yet — the
-            # account exists but hasn't been provisioned into the ERP.
-            raise _LoginError("الحساب غير مُهيأ بعد. تواصل مع مدير النظام.")
-        return {
-            "token": id_token,
-            "tenant_id": claims["tenant_id"],
-            "account_id": claims["uid"],
-            "display_name": email,
-        }
+    if os.getenv("AUTH_PROVIDER", "dev").lower() == "turso":
+        try:
+            return turso_auth.sign_in(email, password)
+        except turso_auth.AuthError as exc:
+            raise _LoginError(exc.message) from exc
     user = _DEV_LOGIN_USERS.get(email)
     if not user or user["password"] != password:
         raise _LoginError("بيانات الدخول غير صحيحة.")

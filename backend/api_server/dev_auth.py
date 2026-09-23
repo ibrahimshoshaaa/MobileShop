@@ -2,8 +2,8 @@
 
 This is a static, in-memory token table — it exists purely so the command
 boundary in backend/functions/api/http.py can be exercised locally without a
-real identity provider wired up. It MUST be replaced with real Firebase
-ID-token verification (or another real identity provider) before this is
+real identity provider wired up. It MUST be replaced with real turso_auth.py
+password verification (or another real identity provider) before this is
 anything but a local dev sandbox. See backend/api_server/README.md for what
 "real" auth needs to look like here.
 """

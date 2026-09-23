@@ -1,43 +1,38 @@
 #!/usr/bin/env python3
-"""Provision an isolated Firebase/Turso staging principal for the smoke test.
+"""Provision an isolated Turso staging principal for the smoke test.
 
-Run locally only. Never commit Firebase service-account JSON or Turso tokens.
-The script creates a small, deterministic tenant/branch dataset and assigns
-the Firebase user the claims required by the authenticated staging smoke.
+Run locally only. Never commit Turso tokens or staging passwords.
+The script creates a small, deterministic tenant/branch dataset and a
+turso_auth login user with the permissions required by the authenticated
+staging smoke test.
 """
 from __future__ import annotations
 
 import json
 import os
 import sys
+from pathlib import Path
 
-import firebase_admin
-from firebase_admin import auth, credentials
+_REPO_ROOT = Path(__file__).resolve().parents[1]
+if str(_REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(_REPO_ROOT))
+
 import libsql_client
+
+from backend.api_server import turso_auth
 
 TENANT_ID = os.getenv("STAGING_TENANT_ID", "staging-tenant")
 BRANCH_ID = os.getenv("STAGING_BRANCH_ID", "staging-main")
-UID = os.getenv("FIREBASE_STAGING_UID")
+STAGING_EMAIL = os.getenv("STAGING_EMAIL", "staging-smoke@example.com")
+STAGING_PASSWORD = os.getenv("STAGING_PASSWORD")
 DB_URL = os.getenv("TURSO_DATABASE_URL")
 DB_TOKEN = os.getenv("TURSO_AUTH_TOKEN")
-FIREBASE_JSON = os.getenv("FIREBASE_SERVICE_ACCOUNT_JSON")
 
 
 def required(name: str, value: str | None) -> str:
     if not value:
         raise SystemExit(f"Missing required environment variable: {name}")
     return value
-
-
-def init_firebase() -> None:
-    if firebase_admin._apps:
-        return
-    raw = required("FIREBASE_SERVICE_ACCOUNT_JSON", FIREBASE_JSON)
-    try:
-        service_account = json.loads(raw)
-    except json.JSONDecodeError as exc:
-        raise SystemExit("FIREBASE_SERVICE_ACCOUNT_JSON is not valid JSON") from exc
-    firebase_admin.initialize_app(credentials.Certificate(service_account))
 
 
 def insert_record(conn, repo: str, record_id: str, payload: dict, tenant_id: str) -> None:
@@ -48,12 +43,9 @@ def insert_record(conn, repo: str, record_id: str, payload: dict, tenant_id: str
 
 
 def main() -> int:
-    uid = required("FIREBASE_STAGING_UID", UID)
+    password = required("STAGING_PASSWORD", STAGING_PASSWORD)
     db_url = required("TURSO_DATABASE_URL", DB_URL)
     db_token = required("TURSO_AUTH_TOKEN", DB_TOKEN)
-
-    init_firebase()
-    user = auth.get_user(uid)
 
     # libsql-client is a pure-Python client that can use Turso's HTTP endpoint,
     # which makes this provisioning script usable from Termux/Android where the
@@ -80,82 +72,55 @@ def main() -> int:
             return {"__decimal__": value}
 
         insert_record(
-            conn,
-            "products",
-            "staging-product-1",
+            conn, "branches", BRANCH_ID,
+            dc("Branch", {"id": BRANCH_ID, "name": "Staging Branch", "code": "STG", "active": True, "tenant_id": TENANT_ID}),
+            TENANT_ID,
+        )
+        insert_record(
+            conn, "products", "staging-product-1",
             dc("Product", {
-                "id": "staging-product-1",
-                "name": "Staging Test Phone",
-                "sku": "STAGING-001",
-                "product_type": "PHONE",
-                "barcode": "STAGING-001",
-                "selling_price": dec("1000"),
-                "default_cost": dec("600"),
-                "warranty_days": 365,
-                "reorder_level": dec("1"),
-                "active": True,
-                "tenant_id": TENANT_ID,
+                "id": "staging-product-1", "name": "Staging Test Phone", "sku": "STAGING-001",
+                "product_type": "PHONE", "barcode": "STAGING-001", "selling_price": dec("1000"),
+                "default_cost": dec("600"), "warranty_days": 365, "reorder_level": dec("1"),
+                "active": True, "tenant_id": TENANT_ID,
             }),
             TENANT_ID,
         )
         insert_record(
-            conn,
-            "stock",
-            "staging-stock-1",
+            conn, "stock", "staging-stock-1",
             dc("StockMovement", {
-                "id": "staging-stock-1",
-                "branch_id": BRANCH_ID,
-                "product_id": "staging-product-1",
-                "quantity": dec("10"),
-                "movement_type": "OPENING_BALANCE",
-                "reference_id": "staging-bootstrap",
-                "unit_id": None,
-                "cost": dec("600"),
-                "created_at": {"__datetime__": "2026-01-01T00:00:00+00:00"},
-                "tenant_id": TENANT_ID,
+                "id": "staging-stock-1", "branch_id": BRANCH_ID, "product_id": "staging-product-1",
+                "quantity": dec("10"), "movement_type": "OPENING_BALANCE", "reference_id": "staging-bootstrap",
+                "unit_id": None, "cost": dec("600"),
+                "created_at": {"__datetime__": "2026-01-01T00:00:00+00:00"}, "tenant_id": TENANT_ID,
             }),
             TENANT_ID,
         )
         insert_record(
-            conn,
-            "wallets",
-            "staging-wallet-cash",
-            dc("Wallet", {
-                "id": "staging-wallet-cash",
-                "branch_id": BRANCH_ID,
-                "name": "Staging Cash",
-                "wallet_type": "CASH",
-                "active": True,
-                "tenant_id": TENANT_ID,
-            }),
+            conn, "wallets", "staging-wallet-cash",
+            dc("Wallet", {"id": "staging-wallet-cash", "branch_id": BRANCH_ID, "name": "Staging Cash", "wallet_type": "CASH", "active": True, "tenant_id": TENANT_ID}),
             TENANT_ID,
         )
         insert_record(
-            conn,
-            "customers",
-            "staging-customer-1",
-            dc("Customer", {
-                "id": "staging-customer-1",
-                "name": "Staging Test Customer",
-                "phone": "0000000000",
-                "active": True,
-                "tenant_id": TENANT_ID,
-            }),
+            conn, "customers", "staging-customer-1",
+            dc("Customer", {"id": "staging-customer-1", "name": "Staging Test Customer", "phone": "0000000000", "active": True, "tenant_id": TENANT_ID}),
             TENANT_ID,
         )
 
-    claims = {
-        "tenant_id": TENANT_ID,
-        "branch_ids": [BRANCH_ID],
-        "permissions": ["inventory.read"],
-    }
-    auth.set_custom_user_claims(user.uid, claims)
+    result = turso_auth.create_user(
+        email=STAGING_EMAIL,
+        password=password,
+        tenant_id=TENANT_ID,
+        branch_ids=[BRANCH_ID],
+        permissions=["inventory.read"],
+        display_name="Staging Smoke",
+    )
 
-    print(f"Provisioned Firebase UID: {user.uid}")
+    print(f"Provisioned staging user uid={result['uid']} email={result['email']}")
     print(f"STAGING_TENANT_ID={TENANT_ID}")
     print(f"STAGING_BRANCH_ID={BRANCH_ID}")
     print("Claims assigned: tenant_id, branch_ids, permissions=[inventory.read]")
-    print("Next: sign the user in again to obtain a fresh Firebase ID token.")
+    print("Next: POST /auth/login with STAGING_EMAIL/STAGING_PASSWORD to obtain a fresh token.")
     return 0
 
 

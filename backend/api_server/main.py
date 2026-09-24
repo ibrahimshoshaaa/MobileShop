@@ -51,6 +51,7 @@ if str(_REPO_ROOT) not in sys.path:
 from dataclasses import asdict, is_dataclass
 from decimal import Decimal
 import hmac
+import logging
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -585,7 +586,7 @@ async def command_endpoint(request: Request):
             command_id=body.get("commandId"),
             data=_json_safe(result["data"]),
         )
-    except Exception:
-        pass
+    except Exception:  # noqa: BLE001
+        logging.getLogger(__name__).warning("sync_protocol.record_applied_event failed", exc_info=True)
 
     return JSONResponse({"ok": True, "data": _json_safe(result["data"])})

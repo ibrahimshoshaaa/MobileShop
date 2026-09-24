@@ -17,15 +17,16 @@ import 'wallet_repository.dart';
 /// posting, e.g. `wallet:wallet-cash`).
 ///
 /// [listTransactions] turns each matching ledger row into a
-/// [WalletTransaction] for display. Only two ledger `entry_type`s map onto
-/// a [WalletTxType] the mobile app already has a concept of —
-/// `SALE_PAYMENT` and `MAINTENANCE_PAYMENT`; everything else the server can
-/// post against a wallet (`PURCHASE_PAYMENT`, `CUSTOMER_PAYMENT`,
-/// `CUSTOMER_TRANSFER_IN`/`OUT`) has no mobile-side feature behind it yet
-/// (purchases, standalone customer/installment collection, wallet-to-wallet
-/// transfer), so those fall back to [WalletTxType.adjustment] with the
-/// original server entry type kept in [WalletTransaction.note] rather than
-/// mislabeling them — see [_mapEntryType].
+/// [WalletTransaction] for display. The ledger `entry_type`s that map onto
+/// a [WalletTxType] the mobile app already has a concept of are
+/// `SALE_PAYMENT`, `MAINTENANCE_PAYMENT`, and `INSTALLMENT_DOWN_PAYMENT`/
+/// `INSTALLMENT_PAYMENT`; everything else the server can post against a
+/// wallet (`PURCHASE_PAYMENT`, `CUSTOMER_PAYMENT`, `CUSTOMER_TRANSFER_IN`/
+/// `OUT`) has no mobile-side feature behind it yet (purchases, standalone
+/// customer collection, wallet-to-wallet transfer), so those fall back to
+/// [WalletTxType.adjustment] with the original server entry type kept in
+/// [WalletTransaction.note] rather than mislabeling them — see
+/// [_mapEntryType].
 ///
 /// Deposits/withdrawals ([deposit], [withdraw]) write to [_local] first
 /// (so the UI updates immediately, offline-first) and are then queued and
@@ -48,6 +49,7 @@ class ApiWalletRepository implements WalletRepository {
   WalletTxType _mapEntryType(String entryType) => switch (entryType) {
         'SALE_PAYMENT' => WalletTxType.sale,
         'MAINTENANCE_PAYMENT' => WalletTxType.maintenance,
+        'INSTALLMENT_DOWN_PAYMENT' || 'INSTALLMENT_PAYMENT' => WalletTxType.installment,
         _ => WalletTxType.adjustment,
       };
 

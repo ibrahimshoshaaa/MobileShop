@@ -3,6 +3,7 @@ import '../inventory/local_store.dart';
 import '../sales/sale_models.dart' show PaymentMethod, PaymentMethodX;
 import '../sync/online_push.dart';
 import '../wallets/wallet_models.dart';
+import '../wallets/wallet_provider.dart';
 import 'installment_models.dart';
 import 'installment_repository.dart';
 
@@ -78,7 +79,11 @@ class SqliteInstallmentRepository implements InstallmentRepository {
     required double downPayment,
     required double ratePercent,
     required int termMonths,
+    PaymentMethod? downPaymentMethod,
   }) async {
+    if (downPayment > 0 && downPaymentMethod == null) {
+      throw InstallmentException('حدد طريقة دفع المقدم.');
+    }
     final calc = calculateInstallment(
       price: price,
       downPayment: downPayment,
@@ -103,15 +108,22 @@ class SqliteInstallmentRepository implements InstallmentRepository {
     // sqlite_sale_repository.dart — so a successful online push leaves the
     // server's InstallmentPlan under this same id, which collectPayment
     // below relies on when it later references [planId].
+    // The wallet the down payment actually lands in — null when there's no
+    // down payment, and also null (defensively) if downPaymentMethod maps to
+    // no wallet (i.e. CREDIT, which the UI doesn't offer here since "paid on
+    // credit right now" is incoherent for a down payment).
+    final downPaymentWalletId =
+        downPayment > 0 ? serverWalletRefForMethod(downPaymentMethod!.wireValue) : null;
     // Server shape when the plan is server-creatable (see the note below);
     // otherwise keep the local shape, as before (there is nothing correct to send).
-    final planPushable = saleId != null && downPayment == 0;
+    final planPushable = saleId != null && (downPayment == 0 || downPaymentWalletId != null);
     final serverPlanPayload = {
       'sale_id': saleId,
       'customer_id': customerId,
       'down_payment': downPayment,
       'rate_percent': ratePercent,
       'term_months': termMonths,
+      if (downPayment > 0) 'down_payment_wallet_id': downPaymentWalletId,
     };
     await _store.queueCommand(
       commandId: plan.id,
@@ -125,14 +137,27 @@ class SqliteInstallmentRepository implements InstallmentRepository {
     //    concept of a plan with no linked sale, unlike this local model,
     //    which deliberately allows [saleId] to be null for a standalone/
     //    layaway-style plan (see the InstallmentPlan doc comment).
-    //  - downPayment == 0: the server takes an explicit
-    //    `down_payment_wallet_id` to post the down payment against, and
-    //    requires one whenever down_payment > 0 — this local model has no
-    //    down-payment-wallet field at all (createPlan's signature has no
-    //    [PaymentMethod] parameter for it), so there's nothing correct to
-    //    send when a down payment was actually taken.
+    //  - downPayment == 0 || downPaymentWalletId != null: the server takes
+    //    an explicit `down_payment_wallet_id` to post the down payment
+    //    against, and requires one whenever down_payment > 0 — now supplied
+    //    via [downPaymentMethod] above. Still left unpushed in the
+    //    (currently unreachable from the UI) case where that method maps to
+    //    no wallet.
     if (planPushable) {
       await pushCommandOnline(_store, plan.id, 'createInstallmentPlan', serverPlanPayload);
+    }
+    // Down payment is money taken right now, same as a sale's payment
+    // lines — mirror it into the local wallet ledger so the till balance is
+    // right immediately, not just after the next sync. Mirrors
+    // sqlite_sale_repository.dart's _postWalletEntries.
+    if (downPayment > 0 && downPaymentWalletId != null) {
+      final wallets = await getWalletRepository();
+      await wallets.postAuto(
+        walletId: downPaymentWalletId,
+        signedAmount: downPayment,
+        type: WalletTxType.installment,
+        note: 'مقدم خطة تقسيط #${plan.id}',
+      );
     }
     return plan;
   }

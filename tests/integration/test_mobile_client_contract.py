@@ -261,3 +261,27 @@ def test_legacy_installment_plan_shape_is_trimmed_and_local_only_plans_rejected_
     plan = go("plan-2", id="plan-2", sale_id="sale-i", customer_id="cust-1", customer_name="Ali",
               base_financed=100, rate_percent=5, increase=5, total_due=105, term_months=3, monthly_amount=35)
     assert plan.sale_id == "sale-i"
+
+
+def test_installment_plan_with_down_payment_posts_to_the_chosen_wallet():
+    """New admin_mobile shape (createPlan's downPaymentMethod, #4): a plan
+    with a down payment sends down_payment_wallet_id as a built-in wallet
+    alias, exactly like sqlite_installment_repository.dart's
+    serverWalletRefForMethod does — resolved and posted the same way a
+    sale's cash/wallet/instapay payment lines are."""
+    e = _engine_with_product()
+    PERMS2 = PERMS | {"installments.create"}
+    # create_installment_plan requires the down-payment wallet to already
+    # hold at least the down payment (same INSUFFICIENT_WALLET_BALANCE guard
+    # collect_installment uses) — fund it first, as a real till would have
+    # been funded by an earlier cash/instapay sale.
+    run(e, "sale-fund", "createSale", customer_id=None,
+        items=[{"product_id": "p-1", "quantity": 1, "unit_price": 50}],
+        payments=[{"wallet_id": "wallet-instapay", "amount": 50}], discount=0)
+    run(e, "sale-dp", "createSale", customer_id="cust-1",
+        items=[{"product_id": "p-1", "quantity": 2, "unit_price": 50}], payments=[], discount=0)
+    dispatch(e, "createInstallmentPlan", CommandContext("plan-dp", "u", BRANCH, PERMS2),
+             sale_id="sale-dp", customer_id="cust-1", down_payment=30, rate_percent=5,
+             term_months=3, down_payment_wallet_id="wallet-instapay")
+    instapay = next(w for w in e.wallets.all() if w.wallet_type == "INSTAPAY")
+    assert e._balance(instapay.id) == Decimal("80")

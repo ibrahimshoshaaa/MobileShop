@@ -151,6 +151,7 @@ class _NewInstallmentPlanScreenState extends State<NewInstallmentPlanScreen> {
   final _downPaymentController = TextEditingController(text: '0');
   final _rateController = TextEditingController(text: '0');
   final _termController = TextEditingController(text: '6');
+  PaymentMethod? _downPaymentMethod;
   bool _submitting = false;
   String? _error;
 
@@ -189,6 +190,10 @@ class _NewInstallmentPlanScreenState extends State<NewInstallmentPlanScreen> {
       setState(() => _error = 'تأكد من إدخال كل الحقول بأرقام صحيحة.');
       return;
     }
+    if (down > 0 && _downPaymentMethod == null) {
+      setState(() => _error = 'حدد طريقة دفع المقدم.');
+      return;
+    }
     setState(() {
       _submitting = true;
       _error = null;
@@ -201,6 +206,7 @@ class _NewInstallmentPlanScreenState extends State<NewInstallmentPlanScreen> {
         downPayment: down,
         ratePercent: rate,
         termMonths: term,
+        downPaymentMethod: down > 0 ? _downPaymentMethod : null,
       );
       if (mounted) Navigator.of(context).pop(true);
     } on InstallmentException catch (e) {
@@ -243,6 +249,18 @@ class _NewInstallmentPlanScreenState extends State<NewInstallmentPlanScreen> {
             decoration: const InputDecoration(labelText: 'المقدم'),
             onChanged: (_) => setState(() {}),
           ),
+          if ((double.tryParse(_downPaymentController.text) ?? 0) > 0) ...[
+            const SizedBox(height: 12),
+            DropdownButtonFormField<PaymentMethod>(
+              value: _downPaymentMethod,
+              decoration: const InputDecoration(labelText: 'الدفعة المقدمة اتدفعت إزاي؟'),
+              items: [
+                for (final m in PaymentMethod.values)
+                  if (m != PaymentMethod.credit) DropdownMenuItem(value: m, child: Text(m.label)),
+              ],
+              onChanged: (m) => setState(() => _downPaymentMethod = m),
+            ),
+          ],
           const SizedBox(height: 12),
           TextField(
             controller: _rateController,

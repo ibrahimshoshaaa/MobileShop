@@ -95,7 +95,7 @@ class BuiltinWallets {
 }
 
 /// What kind of event moved money in/out of a wallet.
-enum WalletTxType { deposit, withdraw, sale, expense, maintenance, adjustment }
+enum WalletTxType { deposit, withdraw, sale, expense, maintenance, installment, adjustment }
 
 extension WalletTxTypeX on WalletTxType {
   String get label => switch (this) {
@@ -104,6 +104,7 @@ extension WalletTxTypeX on WalletTxType {
         WalletTxType.sale => 'تحصيل فاتورة بيع',
         WalletTxType.expense => 'مصروف',
         WalletTxType.maintenance => 'تحصيل صيانة',
+        WalletTxType.installment => 'تقسيط',
         WalletTxType.adjustment => 'تسوية',
       };
 

@@ -467,7 +467,7 @@ class _CollectPaymentDialogState extends State<_CollectPaymentDialog> {
   Widget build(BuildContext context) {
     // Credit doesn't make sense when *collecting* money against an
     // installment plan, so it's left out of the picker here.
-    const methods = [PaymentMethod.cash, PaymentMethod.wallet, PaymentMethod.card];
+    const methods = [PaymentMethod.cash, PaymentMethod.wallet, PaymentMethod.instapay];
     return AlertDialog(
       title: const Text('تحصيل قسط'),
       content: Column(

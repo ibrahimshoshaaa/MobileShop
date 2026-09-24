@@ -234,6 +234,40 @@ class SyncProtocol:
         ).fetchone()[0]
         return {"results": results, "next_cursor": int(cursor)}
 
+    def record_applied_event(self, *, tenant_id: str, branch_id: str, command_id: str, data) -> None:
+        """Writes a COMMAND_APPLIED sync_events row directly, without going
+        through upload()'s PROCESSING/receipt bookkeeping. Used by POST
+        /command (the app's immediate-online-write path) so a command
+        applied there becomes visible to another device's download() the
+        same way a command applied via upload()'s executor path already is
+        — see that method's INSERT INTO sync_events below, which this
+        mirrors. Deliberately does not touch sync_receipts: /command has
+        its own idempotency via the engine's _processed table, and giving
+        this path a second, differently-keyed receipt would just be a
+        second source of truth for the same fact.
+        """
+        payload_json = json.dumps(data, default=str, ensure_ascii=False, sort_keys=True)
+        with self._lock:
+            # A retried request with the same commandId (network retry after
+            # a client-side timeout, for instance) reaches this method again
+            # with an identical, already-recorded result — the engine's own
+            # idempotency guarantees that. Skip the insert rather than
+            # growing sync_events (and every other device's download feed)
+            # with a duplicate COMMAND_APPLIED for the same command.
+            existing = self.db.execute(
+                "SELECT 1 FROM sync_events WHERE tenant_id=? AND branch_id=? AND command_id=? LIMIT 1",
+                (tenant_id, branch_id, command_id),
+            ).fetchone()
+            if existing:
+                return
+            self.db.execute(
+                "INSERT INTO sync_events"
+                "(tenant_id,branch_id,command_id,event_type,payload_json)"
+                " VALUES(?,?,?,?,?)",
+                (tenant_id, branch_id, command_id, "COMMAND_APPLIED", payload_json),
+            )
+            self.db.commit()
+
     def download(self, *, tenant_id: str, branch_id: str, cursor: int = 0, limit: int = 100) -> dict:
         if cursor < 0 or limit < 1 or limit > 1000:
             raise ValueError("invalid cursor or limit")

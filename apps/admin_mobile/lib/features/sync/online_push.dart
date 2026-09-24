@@ -22,7 +22,7 @@ import 'api_client.dart';
 /// already committed and must never be undone by a network hiccup, a
 /// logged-out session, or a validation mismatch between the local and
 /// server models (see the callers in sqlite_*_repository.dart for the
-/// known cases where that happens, e.g. CARD/CREDIT sale payments). Any
+/// known cases where that happens, e.g. CREDIT sale payments). Any
 /// failure just leaves the command PENDING in the outbox — exactly the
 /// same state it would be in if this helper didn't exist at all — for
 /// 5.1's retry logic to pick up once it's built.

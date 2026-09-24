@@ -63,7 +63,14 @@ class BuiltinWallets {
     walletType: 'WALLET',
   );
 
-  static const all = [cash, wallet];
+  static const instapay = Wallet(
+    id: 'wallet-instapay',
+    branchId: LocalStore.defaultBranchId,
+    name: 'انستاباي',
+    walletType: 'INSTAPAY',
+  );
+
+  static const all = [cash, wallet, instapay];
 
   static Wallet byId(String id) => all.firstWhere(
         (w) => w.id == id,
@@ -76,9 +83,9 @@ class BuiltinWallets {
       );
 
   /// Returns null (instead of throwing) for wire values that don't have a
-  /// wallet balance (CARD/CREDIT) — the convenience callers that post from
-  /// a PaymentMethod need, since not every payment line should touch a
-  /// wallet ledger.
+  /// wallet balance (CREDIT — an on-account receivable, not money on
+  /// hand) — the convenience callers that post from a PaymentMethod need,
+  /// since not every payment line should touch a wallet ledger.
   static Wallet? tryFromWireValue(String value) {
     for (final w in all) {
       if (w.wireValue == value) return w;
@@ -140,11 +147,8 @@ class WalletException implements Exception {
 
 /// The wallet reference the SERVER understands for a payment method, or null
 /// when that method has no wallet on the server (credit = an on-account
-/// receivable). Cash/wallet map to the built-in wallets; card maps to the
-/// branch's card/bank wallet. The server resolves these fixed names to the
-/// branch's real wallets (creating them on first use), so the app never has to
-/// create wallets itself. Card settles to a bank account, so it is only sent
-/// for money coming IN (sales, maintenance delivery, installment collection) —
-/// the local wallet ledger deliberately still skips it (see BuiltinWallets).
+/// receivable). Cash/wallet/instapay all map to their built-in wallets — the
+/// server resolves these fixed names to the branch's real wallets (creating
+/// them on first use), so the app never has to create wallets itself.
 String? serverWalletRefForMethod(String wireValue) =>
-    BuiltinWallets.tryFromWireValue(wireValue)?.id ?? (wireValue == 'CARD' ? 'wallet-card' : null);
+    BuiltinWallets.tryFromWireValue(wireValue)?.id ?? (wireValue == 'CARD' ? 'wallet-instapay' : null);

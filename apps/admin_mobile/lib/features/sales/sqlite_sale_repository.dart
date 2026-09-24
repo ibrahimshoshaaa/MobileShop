@@ -248,7 +248,7 @@ class SqliteSalesRepository implements SalesRepository {
     // Server shape differs from the local one in two ways `_itemToPayload`/
     // `_paymentToPayload` don't need to care about: no `product_unit_id`
     // (the mobile app never sells IMEI-tracked units), and payments are
-    // keyed by `wallet_id`, not by [PaymentMethod] — CARD/CREDIT payments
+    // keyed by `wallet_id`, not by [PaymentMethod] — CREDIT payments
     // have no wallet on the server (see `_postWalletEntries` below, which
     // skips them for the same reason), so they're left out of what's sent;
     // if that drops the paid total below the invoice total, the server
@@ -269,10 +269,10 @@ class SqliteSalesRepository implements SalesRepository {
             {'wallet_id': serverWalletRefForMethod(p.method.wireValue)!, 'amount': p.amount},
       ];
 
-  /// Cash/wallet payment lines move real money, so they post to the wallet
-  /// ledger too (see wallets/wallet_repository.dart). Card settles to a
-  /// bank account and credit is a receivable — neither has a wallet
-  /// balance, so tryFromWireValue skips them.
+  /// Cash/wallet/instapay payment lines move real money, so they post to
+  /// the wallet ledger too (see wallets/wallet_repository.dart). Credit is
+  /// a receivable, not money on hand — it has no wallet balance, so
+  /// tryFromWireValue skips it.
   Future<void> _postWalletEntries(
     List<PaymentEntry> payments,
     WalletTxType type,

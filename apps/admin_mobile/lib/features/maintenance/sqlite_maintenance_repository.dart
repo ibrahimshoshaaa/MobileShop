@@ -133,17 +133,10 @@ class SqliteMaintenanceRepository implements MaintenanceRepository {
     await _store.upsertRecord(
       entity: _ticketEntity, recordId: ticketId, payload: _ticketPayload(updated), expectedVersion: current.version,
     );
-    // 4.3 gap, not an oversight: 'transitionMaintenance' has no entry in
-    // backend/functions/api/dispatch.py's command mapping at all (only
-    // createMaintenanceTicket / useMaintenancePart / deliverMaintenanceTicket
-    // are dispatchable) — there is no server command to push this to yet.
-    // It's still queued here, same as before, so a future server-side
-    // command + 5.1's Upload Queue can pick it up once both exist.
-    await _store.queueCommand(
-      commandId: _newId('cmd-mnt-status'),
-      command: 'transitionMaintenance',
-      payload: {'ticket_id': ticketId, 'new_status': next},
-    );
+    final cmdId = _newId('cmd-mnt-status');
+    final payload = {'ticket_id': ticketId, 'new_status': next};
+    await _store.queueCommand(commandId: cmdId, command: 'transitionMaintenance', payload: payload);
+    await pushCommandOnline(_store, cmdId, 'transitionMaintenance', payload);
     return updated;
   }
 
@@ -155,9 +148,10 @@ class SqliteMaintenanceRepository implements MaintenanceRepository {
     await _store.upsertRecord(
       entity: _ticketEntity, recordId: ticketId, payload: _ticketPayload(updated), expectedVersion: current.version,
     );
-    // Same gap as advanceStatus above: 'cancelMaintenance' isn't in
-    // dispatch.py's mapping either, so there's nothing to push to yet.
-    await _store.queueCommand(commandId: _newId('cmd-mnt-cancel'), command: 'cancelMaintenance', payload: {'ticket_id': ticketId});
+    final cmdId = _newId('cmd-mnt-cancel');
+    final payload = {'ticket_id': ticketId};
+    await _store.queueCommand(commandId: cmdId, command: 'cancelMaintenance', payload: payload);
+    await pushCommandOnline(_store, cmdId, 'cancelMaintenance', payload);
     return updated;
   }
 
@@ -244,11 +238,11 @@ class SqliteMaintenanceRepository implements MaintenanceRepository {
     );
     // Server only requires a wallet when payment > 0 (see
     // deliver_maintenance in completion.py); with no payment, wallet_id can
-    // be omitted entirely, so a CARD/CREDIT delivery with payment 0 is
-    // still safe to push. A CARD/CREDIT delivery *with* payment has no
-    // wallet to attribute it to (same limitation as sales/expenses above),
-    // so that combination is skipped — same as the local wallet posting
-    // just below, gated on the same condition.
+    // be omitted entirely, so a CREDIT delivery with payment 0 is still
+    // safe to push. A CREDIT delivery *with* payment has no wallet to
+    // attribute it to (same limitation as sales/expenses above), so that
+    // combination is skipped — same as the local wallet posting just
+    // below, gated on the same condition.
     if (payment == 0 || serverWalletId != null) {
       await pushCommandOnline(_store, deliverCmdId, 'deliverMaintenanceTicket', {
         'ticket_id': ticketId,

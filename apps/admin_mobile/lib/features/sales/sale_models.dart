@@ -3,13 +3,13 @@ import 'package:flutter/foundation.dart';
 /// Payment method for one payment line on a sale. "دفع مختلط" (mixed) isn't
 /// its own value — it's just a sale with more than one payment line using
 /// different methods, same as the placeholder screen described.
-enum PaymentMethod { cash, wallet, card, credit }
+enum PaymentMethod { cash, wallet, instapay, credit }
 
 extension PaymentMethodX on PaymentMethod {
   String get label => switch (this) {
         PaymentMethod.cash => 'نقدي',
         PaymentMethod.wallet => 'محفظة',
-        PaymentMethod.card => 'بطاقة',
+        PaymentMethod.instapay => 'انستاباي',
         PaymentMethod.credit => 'آجل',
       };
 
@@ -17,14 +17,17 @@ extension PaymentMethodX on PaymentMethod {
   String get wireValue => switch (this) {
         PaymentMethod.cash => 'CASH',
         PaymentMethod.wallet => 'WALLET',
-        PaymentMethod.card => 'CARD',
+        PaymentMethod.instapay => 'INSTAPAY',
         PaymentMethod.credit => 'CREDIT',
       };
 
+  /// 'CARD' is accepted as a legacy wire value only — older builds (and any
+  /// still-queued offline commands from before InstaPay replaced Card)
+  /// wrote it. New data is never written with it (see [wireValue] above).
   static PaymentMethod fromWireValue(String value) => switch (value) {
         'CASH' => PaymentMethod.cash,
         'WALLET' => PaymentMethod.wallet,
-        'CARD' => PaymentMethod.card,
+        'INSTAPAY' || 'CARD' => PaymentMethod.instapay,
         'CREDIT' => PaymentMethod.credit,
         _ => throw ArgumentError('Unknown PaymentMethod wire value: $value'),
       };

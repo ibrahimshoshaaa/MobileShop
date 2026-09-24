@@ -27,15 +27,14 @@ import 'wallet_repository.dart';
 /// original server entry type kept in [WalletTransaction.note] rather than
 /// mislabeling them — see [_mapEntryType].
 ///
-/// Deposits/withdrawals and every automatic posting from a completed local
-/// sale/expense/maintenance ticket ([deposit], [withdraw], [postAuto]) keep
-/// going to [_local] (the existing offline SQLite repository) unchanged —
-/// wallet writes aren't part of 4.2 or 4.3. That is deliberate, not an
-/// oversight: those local writes are exactly what the Upload Queue (5.1)
-/// will later drain to the server, so until it exists, balances shown here
-/// reflect the server's last-known state and won't include a sale made
-/// moments ago on this device — the same eventual-consistency gap every
-/// offline-first sync design has before its upload side is wired.
+/// Deposits/withdrawals ([deposit], [withdraw]) write to [_local] first
+/// (so the UI updates immediately, offline-first) and are then queued and
+/// pushed to the server as `adjustWallet` — see
+/// [SqliteWalletRepository._postAndSync]. Automatic postings from a
+/// completed local sale/expense/maintenance ticket ([postAuto]) stay
+/// local-only: that command already posted its own wallet-side ledger
+/// entry on the server, so pushing [postAuto] too would double the
+/// movement.
 class ApiWalletRepository implements WalletRepository {
   ApiWalletRepository(this._client, this._local);
 

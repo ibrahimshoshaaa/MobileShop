@@ -19,7 +19,7 @@ from shared.contracts.commands import CommandContext
 
 PERMS = frozenset({
     "products.edit", "customers.edit", "stock.adjust", "sales.create", "sales.void",
-    "wallets.edit", "expenses.create", "maintenance.create", "maintenance.parts",
+    "wallets.edit", "wallet.adjust", "expenses.create", "maintenance.create", "maintenance.parts",
     "maintenance.update",
 })
 BRANCH = "b1"
@@ -81,6 +81,68 @@ def test_sale_void_and_maintenance_move_stock_exactly_once():
     assert stock(e, "p-1") == 7
 
 
+def test_maintenance_transition_and_delivery():
+    """sqlite_maintenance_repository.dart queues 'transitionMaintenance' with
+    {'ticket_id', 'new_status'} to advance a ticket, and deliver_maintenance
+    refuses delivery before the ticket reaches READY. Before dispatch.py's
+    mapping included these two commands, both calls raised INVALID_INPUT
+    ('الأمر غير مدعوم'), so a ticket queued offline could never be walked to
+    READY/DELIVERED once it reached the server."""
+    e = ERPCommandEngine()
+    bootstrap(e)
+    # Fund wallet-cash so the delivery payment below has a balance to draw on.
+    run(e, "sale-fund", "createSale", customer_id="cust-1",
+        items=[{"product_id": "p-1", "quantity": 2, "unit_price": 50}],
+        payments=[{"wallet_id": "wallet-cash", "amount": 100}], discount=0)
+
+    run(e, "mnt-1", "createMaintenanceTicket", customer_id="cust-1", device="Phone",
+        problem="screen", imei=None)
+
+    for step, next_status in enumerate(
+        ("DIAGNOSING", "WAITING_CUSTOMER", "IN_PROGRESS", "READY")
+    ):
+        run(e, f"mnt-1-step-{step}", "transitionMaintenance",
+            ticket_id="mnt-1", new_status=next_status)
+    assert e.maintenance.get("mnt-1").status == "READY"
+
+    run(e, "mnt-1-deliver", "deliverMaintenanceTicket", ticket_id="mnt-1",
+        final_price=100, payment=100, wallet_id="wallet-cash")
+    assert e.maintenance.get("mnt-1").status == "DELIVERED"
+
+
+def test_maintenance_cancel_returns_used_parts_to_stock():
+    """sqlite_maintenance_repository.dart queues 'cancelMaintenance' with just
+    {'ticket_id'}; before it was mapped in dispatch.py this always failed with
+    INVALID_INPUT, so a cancelled-locally ticket never actually cancelled (or
+    returned its parts to stock) on the server."""
+    e = ERPCommandEngine()
+    bootstrap(e)
+    run(e, "mnt-2", "createMaintenanceTicket", customer_id="cust-1", device="Phone",
+        problem="battery", imei=None)
+    run(e, "mntpart-2", "useMaintenancePart", ticket_id="mnt-2", product_id="p-1",
+        quantity=2, cost=20)
+    assert stock(e, "p-1") == 8
+
+    run(e, "mnt-2-cancel", "cancelMaintenance", ticket_id="mnt-2")
+    assert e.maintenance.get("mnt-2").status == "CANCELLED"
+    assert stock(e, "p-1") == 10
+
+
+def test_manual_wallet_deposit_and_withdraw_resolve_the_alias():
+    """wallets/sqlite_wallet_repository.dart queues 'adjustWallet' with the
+    fixed alias {'wallet_id': 'wallet-cash', 'amount': <signed>, 'reason'}
+    for manual deposit/withdraw — the same alias every other command
+    resolves to the caller's own branch wallet. Before dispatch.py resolved
+    it here too, adjust_wallet's self._wallet(wallet_id, ...) would raise
+    NOT_FOUND for the literal string 'wallet-cash'."""
+    e = ERPCommandEngine()
+    bootstrap(e)
+    run(e, "wtx-1", "adjustWallet", wallet_id="wallet-cash", amount=100, reason="إيداع يدوي")
+    run(e, "wtx-2", "adjustWallet", wallet_id="wallet-cash", amount=-30, reason="سحب يدوي")
+    balance = e._balance("wallet-cash")
+    assert balance == Decimal("70")
+
+
 def test_expense_uses_real_wallet_id():
     e = ERPCommandEngine()
     bootstrap(e)
@@ -124,15 +186,28 @@ def test_builtin_wallets_are_provisioned_on_first_use_without_createwallet():
     assert _wallets(e) == []
     run(e, "sale-1", "createSale", customer_id=None,
         items=[{"product_id": "p-1", "quantity": 2, "unit_price": 50}],
-        payments=[{"wallet_id": "wallet-cash", "amount": 60}, {"wallet_id": "wallet-card", "amount": 40}],
+        payments=[{"wallet_id": "wallet-cash", "amount": 60}, {"wallet_id": "wallet-instapay", "amount": 40}],
         discount=0)
-    assert [t for t, _ in _wallets(e)] == ["BANK", "CASH"]
+    assert [t for t, _ in _wallets(e)] == ["CASH", "INSTAPAY"]
     # reused, not duplicated, on the next command
     run(e, "sale-2", "createSale", customer_id=None,
         items=[{"product_id": "p-1", "quantity": 1, "unit_price": 50}],
         payments=[{"wallet_id": "wallet-cash", "amount": 50}], discount=0)
-    assert [t for t, _ in _wallets(e)] == ["BANK", "CASH"]
+    assert [t for t, _ in _wallets(e)] == ["CASH", "INSTAPAY"]
     run(e, "exp-1", "createExpense", wallet_id="wallet-cash", amount=20, category="rent", note=None)
+
+
+def test_legacy_card_alias_still_resolves_to_the_instapay_wallet():
+    """Old installs (or already-queued offline commands from before Card
+    was replaced by InstaPay) still send 'wallet-card'/'CARD'. Both must
+    keep working — resolving to the same per-branch wallet 'wallet-instapay'
+    now resolves to — rather than erroring or creating a separate BANK
+    wallet no build sends payments to anymore."""
+    e = _engine_with_product()
+    run(e, "sale-legacy", "createSale", customer_id=None,
+        items=[{"product_id": "p-1", "quantity": 1, "unit_price": 50}],
+        payments=[{"wallet_id": "wallet-card", "amount": 50}], discount=0)
+    assert [t for t, _ in _wallets(e)] == ["INSTAPAY"]
 
 
 def test_wallets_are_per_branch_even_though_the_client_alias_is_fixed():

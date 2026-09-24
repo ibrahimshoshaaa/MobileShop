@@ -1,5 +1,6 @@
 import 'dart:math';
 import '../inventory/local_store.dart';
+import '../sync/online_push.dart';
 import 'wallet_models.dart';
 import 'wallet_repository.dart';
 
@@ -76,7 +77,7 @@ class SqliteWalletRepository implements WalletRepository {
   @override
   Future<WalletTransaction> deposit({required String walletId, required double amount, String? note}) async {
     if (amount <= 0) throw WalletException('قيمة الإيداع يجب أن تكون أكبر من صفر.');
-    return _post(walletId: walletId, signedAmount: amount, type: WalletTxType.deposit, note: note);
+    return _postAndSync(walletId: walletId, signedAmount: amount, type: WalletTxType.deposit, note: note);
   }
 
   @override
@@ -87,7 +88,30 @@ class SqliteWalletRepository implements WalletRepository {
     if (amount > current + 0.01) {
       throw WalletException('الرصيد الحالي (${current.toStringAsFixed(2)}) أقل من قيمة السحب.');
     }
-    return _post(walletId: walletId, signedAmount: -amount, type: WalletTxType.withdraw, note: note);
+    return _postAndSync(walletId: walletId, signedAmount: -amount, type: WalletTxType.withdraw, note: note);
+  }
+
+  /// Manual deposit/withdraw (unlike [postAuto]) has no other server-side
+  /// representation — a completed sale/expense/maintenance ticket already
+  /// posts its own wallet-side ledger entry when *that* command runs, so
+  /// [postAuto]'s local-only record just mirrors something the server
+  /// already knows; queuing a command for it too would double the
+  /// movement, the same class of bug already fixed for stock adjustments
+  /// (see dispatch.py's `_LEGACY_DERIVED_STOCK_REASON`). A manual
+  /// deposit/withdrawal has no such command backing it, so it must be
+  /// queued and pushed itself, or the local and server balances diverge
+  /// for real (report item 7).
+  Future<WalletTransaction> _postAndSync({
+    required String walletId,
+    required double signedAmount,
+    required WalletTxType type,
+    String? note,
+  }) async {
+    final tx = await _post(walletId: walletId, signedAmount: signedAmount, type: type, note: note);
+    final payload = {'wallet_id': walletId, 'amount': signedAmount, 'reason': note ?? ''};
+    await _store.queueCommand(commandId: tx.id, command: 'adjustWallet', payload: payload);
+    await pushCommandOnline(_store, tx.id, 'adjustWallet', payload);
+    return tx;
   }
 
   @override

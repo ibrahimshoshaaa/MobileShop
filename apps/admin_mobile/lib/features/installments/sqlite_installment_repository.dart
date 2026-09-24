@@ -193,9 +193,9 @@ class SqliteInstallmentRepository implements InstallmentRepository {
         'wallet_id': collectWalletId ?? method.wireValue,
       },
     );
-    // Same CASH/WALLET-only constraint as sales/expenses above: the server
-    // requires a real wallet to post the collection against, and there's
-    // none for CARD/CREDIT. Reuses payment.id as the command id, matching
+    // Same CASH/WALLET/INSTAPAY-only constraint as sales/expenses above:
+    // the server requires a real wallet to post the collection against,
+    // and there's none for CREDIT. Reuses payment.id as the command id, matching
     // createPlan's id-reuse above, though this push only actually lands
     // when the plan itself made it to the server (i.e. it was created with
     // saleId set and no down payment) — otherwise the server 404s on

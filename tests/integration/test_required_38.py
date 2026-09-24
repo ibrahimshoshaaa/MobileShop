@@ -122,6 +122,16 @@ def test_37_transaction_rollback():
         e.transaction(lambda:(e.create_expense(C('x'),'cash',10,'x'), (_ for _ in ()).throw(RuntimeError('boom'))))
     assert e.expenses.all()==[] and e._balance('cash')==5000
 
+def test_39_daily_closing_freezes_operations_until_reopened():
+    e=setup()
+    e.close_day(C('cl2'),date.today(),{'cash':5000,'dig':5000})
+    with pytest.raises(DomainError) as x:e.create_expense(C('blocked'),'cash',10,'after close')
+    assert x.value.code=='DAY_CLOSED'
+    reopened=e.reopen_day(C('reopen',{'closing.reopen'}),date.today())
+    assert reopened.locked is False
+    e.create_expense(C('allowed'),'cash',10,'after reopen')
+    assert e._balance('cash')==Decimal('4990')
+
 def test_38_offline_conflict():
     q=OfflineSync(); q.enqueue('c1',{'x':1}); q.enqueue('c2',{'x':2})
     def ex(payload):

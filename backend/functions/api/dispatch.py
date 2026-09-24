@@ -5,16 +5,22 @@ from shared.contracts.errors import DomainError
 #
 # The mobile app has no wallet ids of its own on the server: it refers to its
 # built-in wallets by the fixed names 'wallet-cash' / 'wallet-wallet' /
-# 'wallet-card' (older builds sent the payment-method names 'CASH' / 'WALLET' /
-# 'CARD' instead). Ids must be unique per tenant, so a fixed id can't be the
-# real wallet id in a multi-branch tenant. Instead the server resolves each
-# alias to *the caller's own branch's* wallet of that type, creating it the
-# first time it is needed (a plain default drawer/wallet/bank, no user input).
+# 'wallet-instapay' (older builds sent the payment-method names 'CASH' /
+# 'WALLET' / 'INSTAPAY' instead, and builds from before Card was replaced by
+# InstaPay sent 'wallet-card' / 'CARD' — kept here only so any command still
+# queued offline on an old install replays correctly; new builds never send
+# it). Ids must be unique per tenant, so a fixed id can't be the real wallet
+# id in a multi-branch tenant. Instead the server resolves each alias to
+# *the caller's own branch's* wallet of that type, creating it the first
+# time it is needed (a plain default drawer/wallet/instapay account, no user
+# input).
 # ---------------------------------------------------------------------------
 _WALLET_ALIASES = {
     'wallet-cash': ('CASH', 'الخزنة (الدرج)'), 'CASH': ('CASH', 'الخزنة (الدرج)'),
     'wallet-wallet': ('WALLET', 'المحفظة'), 'WALLET': ('WALLET', 'المحفظة'),
-    'wallet-card': ('BANK', 'البطاقة (البنك)'), 'CARD': ('BANK', 'البطاقة (البنك)'),
+    'wallet-instapay': ('INSTAPAY', 'انستاباي'), 'INSTAPAY': ('INSTAPAY', 'انستاباي'),
+    # Legacy only — see note above.
+    'wallet-card': ('INSTAPAY', 'انستاباي'), 'CARD': ('INSTAPAY', 'انستاباي'),
 }
 # Payment methods that never touch a wallet (an on-account/credit sale is just a receivable).
 _NON_WALLET_METHODS = {'CREDIT'}
@@ -69,15 +75,20 @@ _LEGACY_DERIVED_STOCK_REASON = _re.compile(r'^((بيع|إلغاء) فاتورة 
 
 def dispatch(engine, command_name, command, **payload):
     name = command_name
-    mapping={'createSale':'create_sale','returnSale':'return_sale','voidSale':'void_sale','createPurchase':'create_purchase','paySupplier':'pay_supplier','createExpense':'create_expense','createTransfer':'transfer_customer','transferBetweenWallets':'transfer_between_wallets','createInstallmentPlan':'create_installment_plan','collectInstallment':'collect_installment','createMaintenanceTicket':'create_maintenance_ticket','useMaintenancePart':'use_maintenance_part','deliverMaintenanceTicket':'deliver_maintenance','adjustStock':'adjust_stock','transferStock':'transfer_stock','closeDay':'close_day','adjustWallet':'adjust_wallet','changePermission':'set_permission','collectCustomer':'collect_customer','createProduct':'create_product','updateProduct':'update_product','createCustomer':'create_customer','updateCustomer':'update_customer','createSupplier':'create_supplier','updateSupplier':'update_supplier','createWallet':'create_wallet','createBranch':'create_branch','createRole':'create_role','createUserProfile':'create_user_profile','updateUserAccess':'update_user_access'}
+    mapping={'createSale':'create_sale','returnSale':'return_sale','voidSale':'void_sale','createPurchase':'create_purchase','paySupplier':'pay_supplier','createExpense':'create_expense','createTransfer':'transfer_customer','transferBetweenWallets':'transfer_between_wallets','createInstallmentPlan':'create_installment_plan','collectInstallment':'collect_installment','createMaintenanceTicket':'create_maintenance_ticket','transitionMaintenance':'transition_maintenance','cancelMaintenance':'cancel_maintenance','useMaintenancePart':'use_maintenance_part','deliverMaintenanceTicket':'deliver_maintenance','adjustStock':'adjust_stock','transferStock':'transfer_stock','closeDay':'close_day','adjustWallet':'adjust_wallet','changePermission':'set_permission','collectCustomer':'collect_customer','createProduct':'create_product','updateProduct':'update_product','createCustomer':'create_customer','updateCustomer':'update_customer','createSupplier':'create_supplier','updateSupplier':'update_supplier','createWallet':'create_wallet','createBranch':'create_branch','createRole':'create_role','createUserProfile':'create_user_profile','updateUserAccess':'update_user_access'}
     fn=mapping.get(name)
     if not fn or not hasattr(engine,fn): raise DomainError('INVALID_INPUT','الأمر غير مدعوم.',{'command':name})
     if name == 'adjustStock' and _LEGACY_DERIVED_STOCK_REASON.match(str(payload.get('reason', ''))):
         return {'skipped': True, 'reason': 'LEGACY_DERIVED_STOCK_ADJUSTMENT'}
     if name == 'createSale':
         payload['payments'] = _normalize_payments(engine, command, payload.get('payments'))
-    elif name in ('createExpense', 'collectInstallment', 'deliverMaintenanceTicket') and payload.get('wallet_id'):
+    elif name in ('createExpense', 'collectInstallment', 'deliverMaintenanceTicket', 'adjustWallet') and payload.get('wallet_id'):
         payload['wallet_id'] = _resolve_wallet(engine, command, payload['wallet_id'])
+    elif name == 'transferBetweenWallets':
+        if payload.get('source'):
+            payload['source'] = _resolve_wallet(engine, command, payload['source'])
+        if payload.get('destination'):
+            payload['destination'] = _resolve_wallet(engine, command, payload['destination'])
     elif name == 'createInstallmentPlan':
         # Older builds queued the local plan shape (extra keys, no down_payment);
         # keep only what the server understands.

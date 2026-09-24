@@ -565,4 +565,27 @@ async def command_endpoint(request: Request):
     if not result.get("ok"):
         error = result.get("error", {})
         return JSONResponse(result, status_code=_status_for(error.get("code")))
+
+    # Record this success as a sync_events row too — same event_type/shape
+    # SyncProtocol.upload()'s executor path writes for offline-replayed
+    # commands — so a second device's DownloadQueue (GET /sync/changes)
+    # can actually see writes made through this endpoint. Before this,
+    # /command never touched sync_events at all: an online write here was
+    # durable and idempotent on the server, but invisible to every other
+    # device, since only a batched /sync/upload replay produced a
+    # COMMAND_APPLIED event (see tests/integration/
+    # test_command_endpoint_mobile_flow.py, which documented the gap).
+    # Best-effort: a failure here must never fail the command response —
+    # the command itself already committed successfully.
+    try:
+        claims = verify_token(adapter)
+        sync_protocol.record_applied_event(
+            tenant_id=str(claims.get("tenant_id")),
+            branch_id=body.get("branchId"),
+            command_id=body.get("commandId"),
+            data=_json_safe(result["data"]),
+        )
+    except Exception:
+        pass
+
     return JSONResponse({"ok": True, "data": _json_safe(result["data"])})

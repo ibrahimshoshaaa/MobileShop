@@ -78,13 +78,14 @@ class SqliteExpenseRepository implements ExpenseRepository {
         'note': expense.note,
       },
     );
-    // 4.3: server's createExpense (unlike the local model) has no CARD/
-    // CREDIT concept — an expense must come out of an actual wallet
-    // balance it can check (`self._balance(wallet_id)<amount` in
-    // erp_engine.py), and there's no built-in wallet for those two
-    // methods. So the push is only attempted when [method] does resolve
-    // to a real wallet — same condition [walletId != null] already used
-    // just below for the local wallet posting.
+    // 4.3: server's createExpense (unlike the local model) has no CREDIT
+    // concept — an expense must come out of an actual wallet balance it
+    // can check (`self._balance(wallet_id)<amount` in erp_engine.py), and
+    // there's no built-in wallet for that method (cash/wallet/instapay all
+    // resolve to a real one now). So the push is only attempted when
+    // [method] does resolve to a real wallet — same condition
+    // [walletId != null] already used just below for the local wallet
+    // posting.
     if (walletId != null) {
       await pushCommandOnline(_store, expense.id, 'createExpense', {
         'wallet_id': walletId,
